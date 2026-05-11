@@ -120,7 +120,6 @@ function tse_exporter_build_record( $post, $front_id, $opts ) {
     $faqs     = tse_extract_faqs( $dom, $html_for_schema );
     $links    = tse_extract_links( $dom, $permalink );
     $images   = tse_extract_images( $dom );
-    $schema   = tse_extract_schema_blocks( $html_for_schema );
 
     $plain_text        = trim( wp_strip_all_tags( $rendered ) );
     $shortcodes_removed = trim( wp_strip_all_tags( strip_shortcodes( $post->post_content ) ) );
@@ -129,6 +128,8 @@ function tse_exporter_build_record( $post, $front_id, $opts ) {
     $elementor_parsed = tse_parse_elementor( $elementor_data );
 
     $classification = tse_classify( $post, $front_id );
+    $is_homepage    = ( $front_id && (int) $post->ID === (int) $front_id );
+    $schema_section = tse_schema_build_page_section( $html_for_schema, $classification, $is_homepage );
 
     $author = get_userdata( $post->post_author );
 
@@ -175,7 +176,7 @@ function tse_exporter_build_record( $post, $front_id, $opts ) {
             'sections'      => $elementor_parsed['sections'],
             'widget_counts' => $elementor_parsed['widget_counts'],
         ),
-        'schema_blocks' => $schema,
+        'schema' => $schema_section,
     );
 }
 
@@ -391,30 +392,11 @@ function tse_build_image( $attachment_id ) {
  * ---------------------------------------------------------------------- */
 
 function tse_extract_schema_blocks( $html ) {
-    $blocks = array();
-    if ( '' === trim( (string) $html ) ) {
-        return $blocks;
+    if ( ! function_exists( 'tse_schema_extract_from_html' ) ) {
+        return array();
     }
-    if ( preg_match_all( '#<script[^>]+type=["\']application/ld\+json["\'][^>]*>(.*?)</script>#is', $html, $m ) ) {
-        foreach ( $m[1] as $raw ) {
-            $decoded = json_decode( trim( $raw ), true );
-            if ( JSON_ERROR_NONE !== json_last_error() || null === $decoded ) {
-                continue;
-            }
-            if ( isset( $decoded['@graph'] ) && is_array( $decoded['@graph'] ) ) {
-                foreach ( $decoded['@graph'] as $g ) {
-                    $blocks[] = $g;
-                }
-            } elseif ( isset( $decoded[0] ) ) {
-                foreach ( $decoded as $g ) {
-                    $blocks[] = $g;
-                }
-            } else {
-                $blocks[] = $decoded;
-            }
-        }
-    }
-    return $blocks;
+    $r = tse_schema_extract_from_html( $html );
+    return isset( $r['blocks'] ) ? $r['blocks'] : array();
 }
 
 /* -------------------------------------------------------------------------
@@ -952,11 +934,14 @@ function tse_exporter_assemble_bundle( $records, $postprocess, $opts, $truncated
 
         $schema = array();
         foreach ( $records as $r ) {
-            if ( ! empty( $r['schema_blocks'] ) ) {
-                $schema[] = array(
-                    'id'     => $r['id'],
-                    'url'    => $r['url'],
-                    'blocks' => $r['schema_blocks'],
+            if ( ! empty( $r['schema'] ) ) {
+                $schema[] = array_merge(
+                    array(
+                        'id'             => $r['id'],
+                        'url'            => $r['url'],
+                        'classification' => $r['classification'],
+                    ),
+                    $r['schema']
                 );
             }
         }
@@ -980,7 +965,8 @@ function tse_exporter_assemble_bundle( $records, $postprocess, $opts, $truncated
         );
         $bundle['external-links.json']     = $external_edges;
         $bundle['cro-analysis.json']       = $cro;
-        $bundle['schema.json']             = $schema;
+        $bundle['schema.json']              = $schema;
+        $bundle['schema-rollup.json']       = tse_schema_build_rollup( $records );
         $bundle['elementor-structure.json'] = $elementor;
         $bundle['hierarchy.json']          = $postprocess['hierarchy'];
         $bundle['orphans.json']            = array(

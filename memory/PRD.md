@@ -63,8 +63,20 @@ V2: Upgrade from raw content export → AI-ready structured website intelligence
   - Elementor block (widget_counts + sections[] of interpreted widgets; unknown widget fallback).
   - Schema blocks (raw JSON-LD entries with `@graph` flattening).
   - Optional slice files including new `hierarchy.json` (counts + grouped entries) and `internal-links.json` with `anchor_text_frequency`.
-  - Validated via 33-check PHP smoke harness (URL normalisation, DOM extraction, classifier, full Elementor walker incl. unknown fallback, anchor normalisation).
-- Distributable: `/app/tse-site-exporter.zip`.
+  - Validated via 33-check PHP smoke harness.
+- V2.1.0 — Structured-data audit upgrade:
+  - New `includes/schema.php` (resilient JSON-LD extractor + per-block classifier + per-page summary + quality flags + site-wide rollup).
+  - 4-pass JSON recovery (strict → HTML-entity-decode + CDATA-strip → strip JS comments → strip trailing commas). Unparseable blocks captured as `malformed` with error + 500-char preview.
+  - `@graph`, top-level arrays, multiple `<script>` tags, and arbitrary attribute ordering all handled.
+  - LocalBusiness subtype catalog (~120 types: Dentist, Plumber, Restaurant, etc.).
+  - Deep-collect Review / AggregateRating / Question inside nested entities (e.g. Product → review[]).
+  - PageRecord now has `schema = { raw_blocks, interpreted, malformed, summary, quality_flags }`.
+  - Summary: schema_types_detected, faq_count, review_count, aggregate_rating, aggregate_rating_present, plus presence flags for Organization / LocalBusiness / WebSite / WebPage / Breadcrumb / Product / Article / Service.
+  - Quality flags per page: malformed-schema-detected, no-schema-detected, money-page-missing-faq, money-page-missing-reviews, article-missing-article-schema, homepage-missing-organization, homepage-missing-localbusiness, page-missing-breadcrumb.
+  - New `schema-rollup.json` slice: totals, types_distribution, site_level presence flags, issue lists per quality flag, malformed_pages, recommendations.
+  - Live-URL fetch toggle is now ON by default (essential because most SEO/schema plugins inject JSON-LD into `wp_head`, outside the post content).
+  - Validated via 35-check PHP smoke harness covering arrays, `@graph`, malformed recovery, LB subtypes, nested counts, all quality flags, full rollup.
+- Distributable: `/app/tse-site-exporter.zip` (≈23 KB, 5 files).
 
 ## Validation
 - `php -l` clean on all PHP files.

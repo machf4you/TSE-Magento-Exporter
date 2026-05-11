@@ -182,7 +182,7 @@ Or manually: unzip into `/wp-content/plugins/` and activate.
 
 - **Single request**: very large sites (>5k posts) may exceed PHP `max_execution_time` / `memory_limit`. Use Full mode only after raising those, or run the Quick exports in batches. Background/Action-Scheduler mode is planned for V2.1.
 - **Broken-link detection** is HEAD-based and depends on outbound HTTP being allowed; some servers reject HEAD (we fall back to a short GET).
-- **Schema extraction** only sees what is rendered through `the_content` (or the live URL fetch if enabled). Schema injected purely via `wp_head` will only appear with the **Live URL** toggle on.
+- **Schema extraction** uses the **live rendered HTML** when the "Fetch live rendered URL" toggle is ON (now the default). This is required to see JSON-LD that SEO plugins (Rank Math / Yoast / Schema Pro / etc.) inject into `wp_head` rather than the post content. If you turn the toggle off, schema is only captured from JSON-LD inside `the_content` — usually almost empty.
 - **Forms beyond known plugins** (CF7, WPForms, Gravity, Forminator, Ninja, Fluent, Elementor Pro Form, native `<form>`) are detected by presence only.
 - **CRO heuristics** flag likely candidates (CTA phrases, trust keywords, testimonials). They are evidence-based hints, not assertions.
 - **Elementor custom/unknown widgets** are kept under a generic `{ type: 'unknown', widget_type, text }` entry rather than skipped.

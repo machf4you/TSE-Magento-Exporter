@@ -1,8 +1,8 @@
 <?php
 /**
  * Plugin Name: TSE Site Exporter
- * Description: Exports AI-ready structured website intelligence (SEO, content structure, internal/external links, media, CRO signals, schema, interpreted Elementor structure, page classification & hierarchy) as a downloadable ZIP of JSON files.
- * Version:     2.0.0
+ * Description: Exports AI-ready structured website intelligence (SEO, content hierarchy, internal/external links, media, CRO signals, full structured-data audit with classification/quality flags, interpreted Elementor structure, page classification & site hierarchy) as a downloadable ZIP of JSON files.
+ * Version:     2.1.0
  * Author:      TSE
  * License:     GPL-2.0-or-later
  * Text Domain: tse-site-exporter
@@ -16,6 +16,7 @@ define( 'TSE_SITE_EXPORTER_VERSION', '2.0.0' );
 define( 'TSE_SITE_EXPORTER_NONCE',   'tse_site_exporter_export' );
 define( 'TSE_SITE_EXPORTER_PATH',    plugin_dir_path( __FILE__ ) );
 
+require_once TSE_SITE_EXPORTER_PATH . 'includes/schema.php';
 require_once TSE_SITE_EXPORTER_PATH . 'includes/exporter.php';
 require_once TSE_SITE_EXPORTER_PATH . 'includes/postprocess.php';
 
@@ -74,9 +75,9 @@ function tse_site_exporter_render_admin_page() {
                         <th scope="row"><?php echo esc_html__( 'Options', 'tse-site-exporter' ); ?></th>
                         <td>
                             <label>
-                                <input type="checkbox" name="tse_live_fetch" value="1"
+                                <input type="checkbox" name="tse_live_fetch" value="1" checked
                                        data-testid="tse-opt-live-fetch">
-                                <?php echo esc_html__( 'Also fetch the live rendered URL (improves schema/HTML accuracy; slower).', 'tse-site-exporter' ); ?>
+                                <?php echo esc_html__( 'Fetch live rendered URL for accurate schema extraction (recommended — many SEO plugins inject JSON-LD into wp_head, not the post content).', 'tse-site-exporter' ); ?>
                             </label><br>
                             <label>
                                 <input type="checkbox" name="tse_broken_check" value="1"
