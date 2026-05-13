@@ -101,6 +101,16 @@ V2: Upgrade from raw content export → AI-ready structured website intelligence
   - **H1 safety net**: in `tse_exporter_build_record`, if every heading source returns empty, `headings['h1']` falls back to `$post->post_title`. Guarantees a published page never exports an empty H1.
   - Vestigial `seo.schema_types: []` field removed (real schema audit is in `page.schema`); SEO output is cleaner and consistent.
   - Validated via 10-check stabilisation smoke + 18-check cross-round regression. Cumulative: **148/148** across all rounds.
+- V2.2.0 — **Internal Link Relationship Engine**:
+  - New `includes/relationships.php` houses `tse_relationships_build($records, $url_index, $thresholds)` — single-pass O(n) builder over PageRecords.
+  - Computes per-page metrics: `incoming_link_count`, `outgoing_link_count`, `unique_linking_pages`, `unique_target_pages`, `incoming_anchors` (sorted list), `outgoing_anchors`, `inbound_classifications`, `outbound_classifications`. Self-loops excluded from in/out counts but kept in totals.
+  - Site-wide rollup: totals (pages, edges, self-loops, orphan/weak/excessive counts), averages, configurable thresholds, **top 10 hubs** (by outgoing), **top 10 authorities** (by incoming), **classification flow matrix** (source classification → target classification edge counts — captures authority flow), top-50 anchor-text frequency.
+  - Threshold-based slicing: orphans (`incoming <= orphan_max_incoming`, default 0), weak (`incoming <= weak_max_incoming`, default 1), excessive outbound (`outgoing >= excessive_outbound_min`, default 80). Homepage excluded from orphan/weak.
+  - Pipeline wired into `tse_exporter_run` after `tse_postprocess_build`: builds relationships, injects slim `relationships` object (4 counts only) into every PageRecord.
+  - `tse_exporter_assemble_bundle` signature extended with `$relationships`; emits four new slice files: `internal-link-graph.json` (nodes with metrics + edges), `orphan-pages.json` (threshold meta + list), `weak-pages.json` (threshold meta + list), `relationship-summary.json` (totals, averages, thresholds, top hubs, top authorities, classification flow, anchor frequency, excessive_outbound_pages list).
+  - Architecture is graph-ready: edges carry source/target classification + post type + target_id for downstream weighting / PageRank-style scoring.
+  - Validated via 29-check relationship smoke harness covering per-page metrics, self-loop handling, anchor breakdowns, classification breakdowns, orphan/weak/excessive detection with homepage exclusion, classification flow matrix, top hubs/authorities, anchor frequency, summary totals.
+- Cumulative test count across all rounds: **177/177**.
 
 ## Validation
 - `php -l` clean on all PHP files.

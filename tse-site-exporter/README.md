@@ -194,9 +194,10 @@ The parser walks `_elementor_data` recursively and applies a per-widget mapper f
 
 ## Versioning
 
-- v2.1.3 — Stabilisation: normalised heading dedup keys (decode entities, strip trailing `.,;:!?` punctuation, collapse whitespace, lowercase) so `Pricing` / `Pricing.` / `Pricing:` / `Q&amp;A` / `Q&A` all collapse to one entry; HTML entities decoded in Elementor heading widget output; `clean_text` dedup widened from "consecutive" to a FIFO sliding window of 10 recent chunks to catch non-consecutive paragraph repeats; H1 always falls back to the post title as a final safety net (never empty for a published page); vestigial `seo.schema_types: []` removed (real schema lives in `page.schema`).
+- v2.2.0 — **Internal Link Relationship Engine**: new `includes/relationships.php` builds a full internal-link graph in one pass — per-page metrics (incoming/outgoing counts, unique linking pages, unique target pages, incoming/outgoing anchor breakdown, inbound/outbound classification breakdown), threshold-based orphan/weak/excessive-outbound detection (homepage excluded from orphan/weak), classification flow matrix (source classification → target classification edge counts), top 10 hubs (most outgoing) and top 10 authorities (most incoming), global anchor-text frequency. Per-page `relationships` object (slim counts) injected into every PageRecord. Four new slice files: `internal-link-graph.json`, `orphan-pages.json`, `weak-pages.json`, `relationship-summary.json`.
+- v2.1.3 — Stabilisation: normalised heading dedup, decoded entities, sliding-window clean_text dedup, H1 post-title safety net, vestigial field cleanup.
 - v2.1.2 — Content-structure quality: theme-builder widgets, addon-heading pattern, `tse_html_to_text` word boundaries, sentence-punctuation join, structural-widget exclusion.
-- v2.1.1 — Extraction-quality fixes: live-HTML-first SEO, template expansion, heading dedup.
+- v2.1.1 — Extraction-quality fixes: live-HTML-first SEO, template expansion.
 - v2.1.0 — Structured-data audit: resilient JSON-LD extractor, classification, quality flags, site rollup.
 - v2.0.0 — SEO/CRO/AI export, classification, hierarchy, anchor frequency, Elementor interpreter, slice files.
 - v1.0.0 — Raw posts/pages/CPT/products export.

@@ -1196,7 +1196,7 @@ function tse_exporter_enrich_internal_links( &$records, $url_index ) {
  * Bundle assembly
  * ---------------------------------------------------------------------- */
 
-function tse_exporter_assemble_bundle( $records, $postprocess, $opts, $truncated, $post_types ) {
+function tse_exporter_assemble_bundle( $records, $postprocess, $relationships, $opts, $truncated, $post_types ) {
     $manifest = array(
         'plugin'         => 'TSE Site Exporter',
         'plugin_version' => TSE_SITE_EXPORTER_VERSION,
@@ -1319,6 +1319,12 @@ function tse_exporter_assemble_bundle( $records, $postprocess, $opts, $truncated
             'orphan_pages'         => $postprocess['orphans'],
             'broken_internal_links' => $postprocess['broken_links'],
         );
+
+        // V2 relationship engine slices.
+        $bundle['internal-link-graph.json'] = $relationships['graph'];
+        $bundle['orphan-pages.json']        = $relationships['orphan_pages'];
+        $bundle['weak-pages.json']          = $relationships['weak_pages'];
+        $bundle['relationship-summary.json']= $relationships['relationship_summary'];
 
         $manifest['files'] = array_keys( $bundle );
         $bundle['manifest.json'] = $manifest;
