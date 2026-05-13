@@ -49,7 +49,10 @@ function tse_exporter_run( $opts ) {
     // V2 Internal Link Relationship Engine: graph, orphan/weak/excessive, metrics.
     $relationships = tse_relationships_build( $records, $url_index );
 
-    // Inject per-page relationship metrics into each PageRecord.
+    // V2.3 Weighted Internal Linking Engine: authority, strategic types, clusters, intelligence.
+    $authority = tse_authority_build( $records, $url_index, $relationships );
+
+    // Inject per-page relationship metrics + authority into each PageRecord.
     foreach ( $records as &$r ) {
         $norm = tse_normalize_url( $r['url'] );
         if ( isset( $relationships['per_page'][ $norm ] ) ) {
@@ -66,10 +69,13 @@ function tse_exporter_run( $opts ) {
                 'outbound_classifications' => array(),
             );
         }
+        if ( isset( $authority['per_page'][ $norm ] ) ) {
+            $r['authority'] = $authority['per_page'][ $norm ];
+        }
     }
     unset( $r );
 
-    return tse_exporter_assemble_bundle( $records, $postprocess, $relationships, $opts, $truncated, $post_types );
+    return tse_exporter_assemble_bundle( $records, $postprocess, $relationships, $authority, $opts, $truncated, $post_types );
 }
 
 /**
@@ -1219,7 +1225,7 @@ function tse_exporter_enrich_internal_links( &$records, $url_index ) {
  * Bundle assembly
  * ---------------------------------------------------------------------- */
 
-function tse_exporter_assemble_bundle( $records, $postprocess, $relationships, $opts, $truncated, $post_types ) {
+function tse_exporter_assemble_bundle( $records, $postprocess, $relationships, $authority, $opts, $truncated, $post_types ) {
     $manifest = array(
         'plugin'         => 'TSE Site Exporter',
         'plugin_version' => TSE_SITE_EXPORTER_VERSION,
@@ -1348,6 +1354,13 @@ function tse_exporter_assemble_bundle( $records, $postprocess, $relationships, $
         $bundle['orphan-pages.json']        = $relationships['orphan_pages'];
         $bundle['weak-pages.json']          = $relationships['weak_pages'];
         $bundle['relationship-summary.json']= $relationships['relationship_summary'];
+
+        // V2.3 weighted internal linking engine slices.
+        $bundle['authority-map.json']       = $authority['authority_map'];
+        $bundle['weighted-link-graph.json'] = $authority['weighted_graph'];
+        $bundle['strategic-pages.json']     = $authority['strategic_pages'];
+        $bundle['cluster-signals.json']     = $authority['cluster_signals'];
+        $bundle['intelligence-flags.json']  = $authority['intelligence'];
 
         $manifest['files'] = array_keys( $bundle );
         $bundle['manifest.json'] = $manifest;

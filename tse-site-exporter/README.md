@@ -1,6 +1,6 @@
-# TSE Site Exporter — V2
+# TSE Site Exporter — V2.3
 
-A WordPress plugin that exports **AI-ready structured website intelligence** as a single downloadable ZIP of JSON files. Not a raw WordPress dump — every page is reduced to a canonical record covering SEO, content hierarchy, FAQs, links (with cross-references), media, CRO signals, schema, and interpreted Elementor structure. Includes a site-wide hierarchy (homepage / money / support / articles), anchor-text frequency, orphan detection, and an optional broken-link check.
+A WordPress plugin that exports **AI-ready structured website intelligence** as a single downloadable ZIP of JSON files. Not a raw WordPress dump — every page is reduced to a canonical record covering SEO, content hierarchy, FAQs, links (with cross-references), media, CRO signals, schema, and interpreted Elementor structure. Includes a site-wide hierarchy, anchor-text frequency, orphan detection, an internal-link relationship graph with per-page metrics, **and (V2.3) a Weighted Internal Linking Engine: strategic page classification, PageRank-like internal authority, composite relationship scores, cluster signals, and relationship-intelligence flags**.
 
 ## What it produces
 
@@ -17,6 +17,19 @@ schema.json                  # extracted JSON-LD blocks
 elementor-structure.json     # interpreted Elementor widget tree per page
 hierarchy.json               # homepage → money → support → articles → other
 orphans.json                 # orphan pages + broken internal links
+
+# V2 relationship engine
+internal-link-graph.json     # full directed graph: nodes + edges + per-page metrics
+orphan-pages.json            # pages with zero incoming internal links
+weak-pages.json              # pages with weak incoming support
+relationship-summary.json    # totals, top hubs / authorities, classification flow
+
+# V2.3 weighted internal linking engine
+authority-map.json           # per-page authority + composite scores (0..100), ranked
+weighted-link-graph.json     # edges with computed authority-propagation weights
+strategic-pages.json         # page → {money, support, article, service, location, product, category, homepage, other}
+cluster-signals.json         # weakly-connected components, main vs isolated clusters
+intelligence-flags.json      # overlinked, under-supported important, high-out/weak-in
 ```
 
 ### `PageRecord` shape

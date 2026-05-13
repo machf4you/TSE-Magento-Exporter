@@ -85,16 +85,19 @@ $opts = array(
 
 $postprocess  = tse_postprocess_build( $records, $url_index, $opts );
 $relationships = tse_relationships_build( $records, $url_index );
+require_once __DIR__ . '/tse-site-exporter/includes/authority.php';
+$authority = tse_authority_build( $records, $url_index, $relationships );
 
 // Inject per-page metrics (mirrors the new logic in tse_exporter_run).
 foreach ( $records as &$r ) {
     $norm = tse_normalize_url( $r['url'] );
     $r['relationships'] = $relationships['per_page'][ $norm ];
+    $r['authority']     = $authority['per_page'][ $norm ];
 }
 unset( $r );
 
-// Verify the 6-arg signature now matches.
-$bundle = tse_exporter_assemble_bundle( $records, $postprocess, $relationships, $opts, false, array( 'page' ) );
+// Verify the new 7-arg signature.
+$bundle = tse_exporter_assemble_bundle( $records, $postprocess, $relationships, $authority, $opts, false, array( 'page' ) );
 
 $expected_files = array(
     'manifest.json', 'full-export.json', 'seo-data.json', 'internal-links.json',
