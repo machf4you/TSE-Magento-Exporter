@@ -46,7 +46,30 @@ function tse_exporter_run( $opts ) {
     // Post-processing: orphans, broken-link check, hierarchy, anchor frequency.
     $postprocess = tse_postprocess_build( $records, $url_index, $opts );
 
-    return tse_exporter_assemble_bundle( $records, $postprocess, $opts, $truncated, $post_types );
+    // V2 Internal Link Relationship Engine: graph, orphan/weak/excessive, metrics.
+    $relationships = tse_relationships_build( $records, $url_index );
+
+    // Inject per-page relationship metrics into each PageRecord.
+    foreach ( $records as &$r ) {
+        $norm = tse_normalize_url( $r['url'] );
+        if ( isset( $relationships['per_page'][ $norm ] ) ) {
+            $r['relationships'] = $relationships['per_page'][ $norm ];
+        } else {
+            $r['relationships'] = array(
+                'incoming_link_count'      => 0,
+                'outgoing_link_count'      => 0,
+                'unique_linking_pages'     => 0,
+                'unique_target_pages'      => 0,
+                'incoming_anchors'         => array(),
+                'outgoing_anchors'         => array(),
+                'inbound_classifications'  => array(),
+                'outbound_classifications' => array(),
+            );
+        }
+    }
+    unset( $r );
+
+    return tse_exporter_assemble_bundle( $records, $postprocess, $relationships, $opts, $truncated, $post_types );
 }
 
 /**
