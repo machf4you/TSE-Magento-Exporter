@@ -93,6 +93,14 @@ V2: Upgrade from raw content export → AI-ready structured website intelligence
   - `theme-site-logo` correctly typed as `image`, not `button`.
   - Validated via 15-check content-structure smoke + 7-check regression: `tse_html_to_text` word boundaries, theme-post-title H1 fallback, addon heading pattern detection, sentence-punctuation join, icon-box / text-editor paragraph splitting, Elementor-primary heading order on Elementor pages, DOM-primary on non-Elementor, structural-widget exclusion, consecutive-dedupe preserved, theme-site-logo typing.
 - Combined test count V2.1.2: 33 (V2.0) + 35 (V2.1 schema) + 30 (V2.1.1 quality) + 15 (V2.1.2 content) + 7 (V2.1.2 regression) = **120/120**.
+- V2.1.3 — Stabilisation pass:
+  - New `tse_heading_key` helper: normalises dedup keys by decoding HTML entities (`ENT_QUOTES | ENT_HTML5`), collapsing whitespace, stripping trailing `.,;:!?` and dash characters, then lowercasing — collapses near-duplicates like `Pricing` / `Pricing.` / `Pricing:` / `  Pricing  ` / `Q&amp;A` / `Q&A` into one entry.
+  - Used by both `tse_collect_headings_from_dom` and `tse_collect_headings_from_elementor` (the H3 parent_h2 key uses it too).
+  - HTML entities now decoded in heading widget output paths (`heading`, `theme-post-title`/`theme-page-title`/`theme-archive-title`, pattern-based default heading detection).
+  - `clean_text` dedup widened from "consecutive only" to a FIFO sliding window of 10 recent normalised chunks — catches non-consecutive paragraph repeats (e.g., a heading reused 3 sections later).
+  - **H1 safety net**: in `tse_exporter_build_record`, if every heading source returns empty, `headings['h1']` falls back to `$post->post_title`. Guarantees a published page never exports an empty H1.
+  - Vestigial `seo.schema_types: []` field removed (real schema audit is in `page.schema`); SEO output is cleaner and consistent.
+  - Validated via 10-check stabilisation smoke + 18-check cross-round regression. Cumulative: **148/148** across all rounds.
 
 ## Validation
 - `php -l` clean on all PHP files.

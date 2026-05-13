@@ -121,6 +121,10 @@ function tse_exporter_build_record( $post, $front_id, $opts ) {
     $elementor_parsed = tse_parse_elementor( $elementor_data, $post->post_title );
 
     $headings = tse_extract_headings( $dom, $elementor_parsed, $live_html );
+    // Final safety net: never let H1 be empty on a published page.
+    if ( '' === $headings['h1'] && '' !== (string) $post->post_title ) {
+        $headings['h1'] = (string) $post->post_title;
+    }
     $faqs     = tse_extract_faqs( $dom, $html_for_schema );
     $links    = tse_extract_links( $dom, $permalink );
     $images   = tse_extract_images( $dom );
@@ -260,7 +264,7 @@ function tse_collect_headings_from_elementor( $elementor_parsed, &$h1, &$h2, &$h
         $text  = isset( $h['text'] )  ? trim( (string) $h['text'] )            : '';
         $level = isset( $h['level'] ) ? strtolower( (string) $h['level'] )     : 'h2';
         if ( '' === $text ) continue;
-        $k = strtolower( $text );
+        $k = tse_heading_key( $text );
         if ( 'h1' === $level ) {
             if ( '' === $h1 ) $h1 = $text;
         } elseif ( 'h2' === $level ) {
@@ -270,13 +274,26 @@ function tse_collect_headings_from_elementor( $elementor_parsed, &$h1, &$h2, &$h
             }
             $current_h2 = $text;
         } elseif ( 'h3' === $level ) {
-            $pk = $k . '||' . strtolower( $current_h2 );
+            $pk = $k . '||' . tse_heading_key( $current_h2 );
             if ( ! isset( $seen_h3[ $pk ] ) ) {
                 $seen_h3[ $pk ] = true;
                 $h3_pairs[] = array( 'parent_h2' => $current_h2, 'text' => $text );
             }
         }
     }
+}
+
+/**
+ * Normalised key for heading dedup. Decodes entities, collapses whitespace,
+ * strips trailing punctuation, lowercases — so "Pricing", "Pricing.", "Pricing:"
+ * and "Q&amp;A" / "Q&A" all collapse to the same key.
+ */
+function tse_heading_key( $text ) {
+    $t = html_entity_decode( (string) $text, ENT_QUOTES | ENT_HTML5, 'UTF-8' );
+    $t = preg_replace( '/\s+/u', ' ', $t );
+    $t = trim( $t );
+    $t = rtrim( $t, ".,;:!? \t-—–" );
+    return strtolower( $t );
 }
 
 /**
@@ -292,7 +309,7 @@ function tse_collect_headings_from_dom( $dom, &$h1, &$h2, &$h3_pairs, &$seen_h2,
         $text = tse_dom_text( $n );
         if ( '' === $text ) continue;
         $tag = strtolower( $n->nodeName );
-        $k   = strtolower( $text );
+        $k   = tse_heading_key( $text );
         if ( 'h1' === $tag ) {
             if ( '' === $h1 ) $h1 = $text;
         } elseif ( 'h2' === $tag ) {
@@ -302,7 +319,7 @@ function tse_collect_headings_from_dom( $dom, &$h1, &$h2, &$h3_pairs, &$seen_h2,
             }
             $current_h2 = $text;
         } elseif ( 'h3' === $tag ) {
-            $pk = $k . '||' . strtolower( $current_h2 );
+            $pk = $k . '||' . tse_heading_key( $current_h2 );
             if ( ! isset( $seen_h3[ $pk ] ) ) {
                 $seen_h3[ $pk ] = true;
                 $h3_pairs[] = array( 'parent_h2' => $current_h2, 'text' => $text );
@@ -570,7 +587,6 @@ function tse_extract_seo( $post_id, $live_html = '' ) {
             'follow' => (bool) $robots_follow,
         ),
         'og'             => $og,
-        'schema_types'   => array(),
     );
 }
 
@@ -870,15 +886,18 @@ function tse_parse_elementor( $raw, $post_title = '' ) {
         );
     }
 
-    // Dedupe consecutive identical chunks (case-insensitive) then append sentence
-    // punctuation so plain_text reads as proper sentences, not a run-on.
+    // Dedupe within a sliding window of recent chunks (catches near-duplicate
+    // paragraph fragments that aren't strictly consecutive) and append sentence
+    // punctuation so plain_text reads naturally rather than as a run-on.
     $deduped = array();
-    $prev    = '';
+    $recent  = array();
+    $window  = 10;
     foreach ( $clean_chunks as $c ) {
         $n = strtolower( trim( (string) $c ) );
-        if ( '' === $n || $n === $prev ) continue;
+        if ( '' === $n || in_array( $n, $recent, true ) ) continue;
         $deduped[] = $c;
-        $prev = $n;
+        $recent[]  = $n;
+        if ( count( $recent ) > $window ) array_shift( $recent );
     }
     $pieces = array();
     foreach ( $deduped as $c ) {
@@ -919,6 +938,7 @@ function tse_elementor_map_widget( $node, &$clean_chunks, &$flags ) {
     switch ( $wt ) {
         case 'heading':
             $text  = isset( $s['title'] ) ? wp_strip_all_tags( (string) $s['title'] ) : '';
+            $text  = trim( html_entity_decode( $text, ENT_QUOTES | ENT_HTML5, 'UTF-8' ) );
             $level = isset( $s['header_size'] ) ? strtolower( (string) $s['header_size'] ) : 'h2';
             if ( '' !== $text ) {
                 $clean_chunks[] = $text;
@@ -931,6 +951,7 @@ function tse_elementor_map_widget( $node, &$clean_chunks, &$flags ) {
         case 'theme-page-title':
         case 'theme-archive-title':
             $text  = isset( $s['title'] ) ? wp_strip_all_tags( (string) $s['title'] ) : '';
+            $text  = trim( html_entity_decode( $text, ENT_QUOTES | ENT_HTML5, 'UTF-8' ) );
             if ( '' === $text && ! empty( $flags['post_title'] ) ) {
                 $text = (string) $flags['post_title'];
             }
@@ -1053,6 +1074,7 @@ function tse_elementor_map_widget( $node, &$clean_chunks, &$flags ) {
             // Catches addon heading widgets (Essential Addons, JetElements, Crocoblock, …).
             if ( isset( $s['header_size'] ) && isset( $s['title'] ) && '' !== trim( (string) $s['title'] ) ) {
                 $text  = wp_strip_all_tags( (string) $s['title'] );
+                $text  = trim( html_entity_decode( $text, ENT_QUOTES | ENT_HTML5, 'UTF-8' ) );
                 $level = strtolower( (string) $s['header_size'] );
                 if ( ! preg_match( '/^h[1-6]$/', $level ) ) $level = 'h2';
                 if ( '' !== $text ) {
