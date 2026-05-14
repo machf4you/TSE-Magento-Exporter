@@ -302,6 +302,94 @@ check( 'reports: ai-report.html renders provider error banner',
     strpos( $err_reports['ai-report.html'], 'Analysis failed' ) !== false
     && strpos( $err_reports['ai-report.html'], 'rate limited' ) !== false );
 
+// ---------------------------------------------------------------------------
+// 10. V2.6.0 report readability: title-over-path cells, page-type pills,
+//     executive summary, quick wins, renamed column header.
+// ---------------------------------------------------------------------------
+$fake6 = new TSE_AI_Provider_Fake();
+$fake6->canned = array(
+    // recommendations (1 high, 1 medium)
+    array( 'items' => array(
+        array( 'priority' => 'high',   'issue' => 'London under-supported', 'affected_pages' => array( 'https://example.com/locations/london/' ), 'recommendation' => 'Add link from homepage', 'confidence_score' => 0.9, 'category' => 'linking' ),
+        array( 'priority' => 'medium', 'issue' => 'Web design thin',         'affected_pages' => array( 'https://example.com/services/web-design/' ), 'recommendation' => 'Expand content', 'confidence_score' => 0.7, 'category' => 'content' ),
+    ) ),
+    // link opportunities
+    array( 'items' => array(
+        array( 'priority' => 'high', 'source_url' => 'https://example.com/services/seo/', 'target_url' => 'https://example.com/services/web-design/', 'suggested_anchor' => 'custom web design services', 'reason' => 'Lifts authority', 'confidence_score' => 0.85 ),
+    ) ),
+    // cluster
+    array( 'items' => array() ),
+    // content gaps (cannibalisation example)
+    array( 'items' => array(
+        array( 'priority' => 'medium', 'issue' => 'Topic overlap', 'affected_pages' => array( 'https://example.com/services/seo/' ), 'recommendation' => 'Merge', 'confidence_score' => 0.65, 'gap_type' => 'cannibalisation' ),
+    ) ),
+);
+
+// Context mirrors what the plugin handler passes (linking.near_orphan_pages etc.)
+$rich_inputs = array(
+    'pages' => array(
+        array( 'url' => 'https://example.com/locations/london/', 'title' => 'Bathroom Renovations London', 'strategic_type' => 'location', 'classification' => 'money', 'issues' => array( 'near_orphan' ), 'incoming_link_count' => 1, 'outgoing_link_count' => 0 ),
+        array( 'url' => 'https://example.com/services/web-design/', 'title' => 'Custom Web Design', 'strategic_type' => 'service', 'classification' => 'money', 'issues' => array( 'thin_content', 'missing_meta_description' ), 'incoming_link_count' => 1, 'outgoing_link_count' => 1 ),
+        array( 'url' => 'https://example.com/services/seo/', 'title' => 'SEO Services', 'strategic_type' => 'service', 'classification' => 'money', 'issues' => array(), 'incoming_link_count' => 3, 'outgoing_link_count' => 2 ),
+        array( 'url' => 'https://example.com/legacy/printable/', 'title' => 'Printable version', 'strategic_type' => 'other', 'classification' => 'other', 'issues' => array( 'thin_content' ), 'incoming_link_count' => 0, 'outgoing_link_count' => 0 ),
+    ),
+    'linking' => array(
+        'linking_opportunities' => array(),
+        'weak_money_pages'      => array( array( 'url' => 'https://example.com/services/web-design/' ) ),
+        'orphan_pages'          => array(),
+        'near_orphan_pages'     => array( array( 'url' => 'https://example.com/locations/london/' ) ),
+        'duplicate_meta_titles'       => array( array( 'meta_title' => 'home', 'count' => 2, 'urls' => array( 'https://example.com/a/', 'https://example.com/b/' ) ) ),
+        'duplicate_meta_descriptions' => array(),
+    ),
+    'site'    => array( 'totals' => array( 'pages' => 4 ) ),
+    'cluster' => array( 'clusters' => array() ),
+);
+
+$rich_out     = tse_ai_runner_execute( $fake6, $rich_inputs );
+$rich_reports = tse_ai_report_build( $rich_out, $rich_inputs );
+
+$ai_html = $rich_reports['ai-report.html'];
+
+// (a) Title-over-path rendering
+check( '[v2.6] affected page shows title (Bathroom Renovations London)', strpos( $ai_html, 'Bathroom Renovations London' ) !== false );
+check( '[v2.6] affected page shows path /locations/london/', strpos( $ai_html, '/locations/london/' ) !== false );
+
+// (b) Column header renamed
+check( '[v2.6] column header "Type / Confidence" present', strpos( $ai_html, 'Type / Confidence' ) !== false );
+check( '[v2.6] old header "Category / Conf." removed', strpos( $ai_html, 'Category / Conf.' ) === false );
+
+// (c) Executive summary cards
+check( '[v2.6] exec summary heading rendered', strpos( $ai_html, 'Executive summary' ) !== false );
+check( '[v2.6] exec card: High Priority Issues', strpos( $ai_html, 'High Priority Issues' ) !== false );
+check( '[v2.6] exec card: Near-Orphan Pages', strpos( $ai_html, 'Near-Orphan Pages' ) !== false );
+check( '[v2.6] exec card: Weak Money Pages', strpos( $ai_html, 'Weak Money Pages' ) !== false );
+check( '[v2.6] exec card: Cannibalisation Risks', strpos( $ai_html, 'Cannibalisation Risks' ) !== false );
+check( '[v2.6] exec card: Thin Content Signals', strpos( $ai_html, 'Thin Content Signals' ) !== false );
+
+// (d) Quick Wins block
+check( '[v2.6] quick wins heading rendered', strpos( $ai_html, 'Quick wins' ) !== false );
+check( '[v2.6] quick win: add internal link from LLM opportunities', strpos( $ai_html, 'Add internal link' ) !== false );
+check( '[v2.6] quick win: fix duplicate meta titles', strpos( $ai_html, 'Fix duplicate meta titles' ) !== false );
+check( '[v2.6] quick win: meta description gap on money/service page', strpos( $ai_html, 'meta descriptions for high-value pages' ) !== false );
+check( '[v2.6] quick win: noindex utility/thin pages', strpos( $ai_html, 'noindex' ) !== false );
+
+// (e) Page-type pill present somewhere (Service Page / Location Page)
+check( '[v2.6] page-type pill "Location Page" appears',
+    strpos( $rich_reports['internal-link-report.html'], 'Service Page' ) !== false
+    || strpos( $rich_reports['internal-link-report.html'], 'Location Page' ) !== false );
+
+// (f) "Why this matters" helper text
+check( '[v2.6] why-this-matters helper present',
+    strpos( $ai_html, 'preserves authority where it matters most' ) !== false
+    || strpos( $ai_html, 'closes topical gaps' ) !== false
+    || strpos( $ai_html, 'easiest/highest impact' ) !== false
+    || strpos( $ai_html, 'Quick snapshot' ) !== false
+    || strpos( $ai_html, 'authority where it matters' ) !== false
+    || strpos( $ai_html, 'Closing topical gaps' ) !== false );
+
+// (g) Wider affected-pages column declared (32% colgroup)
+check( '[v2.6] affected-pages column ~32% width', strpos( $ai_html, 'style="width:32%"' ) !== false );
+
 echo "\n";
 if ( $fail === 0 ) { echo "ALL ASSERTIONS PASS\n"; exit( 0 ); }
 echo "FAILED: $fail assertion(s)\n"; exit( 1 );

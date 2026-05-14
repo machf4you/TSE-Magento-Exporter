@@ -2,7 +2,7 @@
 /**
  * Plugin Name: TSE Site Exporter
  * Description: Exports AI-ready structured website intelligence (SEO, content hierarchy, internal/external links, media, CRO signals, full structured-data audit, interpreted Elementor structure, page classification, site hierarchy, and a full internal-link relationship graph with per-page metrics, orphan/weak detection, classification flow and top hubs/authorities) as a downloadable ZIP of JSON files.
- * Version:     2.5.1
+ * Version:     2.6.0
  * Author:      TSE
  * License:     GPL-2.0-or-later
  * Text Domain: tse-site-exporter
@@ -12,7 +12,7 @@ if ( ! defined( 'ABSPATH' ) ) {
     exit;
 }
 
-define( 'TSE_SITE_EXPORTER_VERSION', '2.5.1' );
+define( 'TSE_SITE_EXPORTER_VERSION', '2.6.0' );
 define( 'TSE_SITE_EXPORTER_NONCE',   'tse_site_exporter_export' );
 define( 'TSE_SITE_EXPORTER_AI_NONCE','tse_site_exporter_ai' );
 define( 'TSE_SITE_EXPORTER_PATH',    plugin_dir_path( __FILE__ ) );
@@ -377,8 +377,10 @@ function tse_site_exporter_handle_ai_run() {
 
     $files = tse_ai_runner_execute( $provider, $inputs );
 
-    // V2.5.1: also render static HTML reports into the same ZIP.
-    $reports = tse_ai_report_build( $files );
+    // V2.5.1+: also render static HTML reports into the same ZIP. Pass the
+    // AI-summary inputs as context so reports can resolve URL → title,
+    // page-type pills, executive summary and quick-wins blocks.
+    $reports = tse_ai_report_build( $files, $inputs );
     foreach ( $reports as $name => $html ) {
         $files[ $name ] = $html;
     }

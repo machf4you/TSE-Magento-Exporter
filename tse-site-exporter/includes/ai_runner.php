@@ -149,16 +149,16 @@ function tse_ai_runner_content_gap( $provider, $inputs, $opts ) {
     $slim_pages = array();
     foreach ( $inputs['pages'] as $p ) {
         $slim_pages[] = array(
-            'url'                  => $p['url'],
-            'title'                => $p['title'],
-            'meta_title'           => $p['meta_title'],
-            'meta_description'    => $p['meta_description'],
-            'strategic_type'       => $p['strategic_type'],
-            'classification'       => $p['classification'],
-            'h1'                   => $p['h1'],
-            'h2'                   => $p['h2'],
-            'word_count'           => $p['word_count'],
-            'issues'               => $p['issues'],
+            'url'              => isset( $p['url'] ) ? $p['url'] : '',
+            'title'            => isset( $p['title'] ) ? $p['title'] : '',
+            'meta_title'       => isset( $p['meta_title'] ) ? $p['meta_title'] : '',
+            'meta_description' => isset( $p['meta_description'] ) ? $p['meta_description'] : '',
+            'strategic_type'   => isset( $p['strategic_type'] ) ? $p['strategic_type'] : 'other',
+            'classification'   => isset( $p['classification'] ) ? $p['classification'] : '',
+            'h1'               => isset( $p['h1'] ) ? $p['h1'] : '',
+            'h2'               => isset( $p['h2'] ) ? $p['h2'] : array(),
+            'word_count'       => isset( $p['word_count'] ) ? (int) $p['word_count'] : 0,
+            'issues'           => isset( $p['issues'] ) ? $p['issues'] : array(),
         );
     }
 
