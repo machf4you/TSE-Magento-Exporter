@@ -387,8 +387,87 @@ check( '[v2.6] why-this-matters helper present',
     || strpos( $ai_html, 'authority where it matters' ) !== false
     || strpos( $ai_html, 'Closing topical gaps' ) !== false );
 
-// (g) Wider affected-pages column declared (32% colgroup)
-check( '[v2.6] affected-pages column ~32% width', strpos( $ai_html, 'style="width:32%"' ) !== false );
+// (g) Wider affected-pages column declared (28% colgroup now V2.7)
+check( '[v2.6] affected-pages column ~28% width', strpos( $ai_html, 'style="width:28%"' ) !== false );
+
+// ---------------------------------------------------------------------------
+// 11. V2.7.0 layout/usability: width, sticky headers, collapse, grouping,
+//     impact badges, priority order, export metrics.
+// ---------------------------------------------------------------------------
+check( '[v2.7] wider layout: max-width 1600px', strpos( $ai_html, 'max-width: 1600px' ) !== false );
+check( '[v2.7] sticky table thead CSS present', strpos( $ai_html, 'position: sticky' ) !== false );
+
+// Collapsible affected pages: feed an item with >3 affected pages.
+$fake7 = new TSE_AI_Provider_Fake();
+$fake7->canned = array(
+    array( 'items' => array(
+        array(
+            'priority' => 'high', 'issue' => 'Many pages affected', 'recommendation' => 'do x',
+            'confidence_score' => 0.9, 'category' => 'metadata',
+            'affected_pages' => array(
+                'https://example.com/p1/', 'https://example.com/p2/', 'https://example.com/p3/',
+                'https://example.com/p4/', 'https://example.com/p5/', 'https://example.com/p6/',
+            ),
+        ),
+        array(
+            'priority' => 'medium', 'issue' => 'Linking gap', 'recommendation' => 'add link',
+            'confidence_score' => 0.7, 'category' => 'linking',
+            'affected_pages' => array( 'https://example.com/services/seo/' ),
+        ),
+        array(
+            'priority' => 'low', 'issue' => 'Cluster fragment', 'recommendation' => 'bridge',
+            'confidence_score' => 0.5, 'category' => 'cluster',
+            'affected_pages' => array( 'https://example.com/help/faq/' ),
+        ),
+    ) ),
+    array( 'items' => array() ),
+    array( 'items' => array() ),
+    array( 'items' => array(
+        array( 'priority' => 'medium', 'issue' => 'Cannibal', 'recommendation' => 'merge', 'gap_type' => 'cannibalisation', 'affected_pages' => array( 'https://example.com/a/' ), 'confidence_score' => 0.8 ),
+        array( 'priority' => 'low',    'issue' => 'Thin', 'recommendation' => 'expand', 'gap_type' => 'thin_content', 'affected_pages' => array( 'https://example.com/services/web-design/' ), 'confidence_score' => 0.6 ),
+    ) ),
+);
+$big_inputs = $rich_inputs;
+// Add page metadata for p1..p6 so titles resolve.
+for ( $i = 1; $i <= 6; $i++ ) {
+    $big_inputs['pages'][] = array(
+        'url' => 'https://example.com/p' . $i . '/', 'title' => 'Page ' . $i,
+        'strategic_type' => 'other', 'classification' => 'other', 'issues' => array(), 'incoming_link_count' => 1, 'outgoing_link_count' => 1,
+    );
+}
+$big_out     = tse_ai_runner_execute( $fake7, $big_inputs );
+$big_reports = tse_ai_report_build( $big_out, $big_inputs );
+$big_html    = $big_reports['ai-report.html'];
+
+check( '[v2.7] >3 pages → <details> collapse rendered', strpos( $big_html, '<details>' ) !== false && strpos( $big_html, 'Show 3 more pages' ) !== false );
+check( '[v2.7] grouping: Metadata subsection', strpos( $big_html, '>Metadata<' ) !== false );
+check( '[v2.7] grouping: Linking subsection', strpos( $big_html, '>Linking<' ) !== false );
+check( '[v2.7] grouping: Cluster / Architecture subsection', strpos( $big_html, 'Cluster / Architecture' ) !== false );
+check( '[v2.7] grouping: Cannibalisation subsection from gap_type', strpos( $big_html, '>Cannibalisation<' ) !== false );
+check( '[v2.7] grouping: Thin Content subsection from gap_type', strpos( $big_html, '>Thin Content<' ) !== false );
+
+// Impact column + badges
+check( '[v2.7] Impact column header present', strpos( $big_html, '<th>Impact</th>' ) !== false );
+check( '[v2.7] High SEO Impact badge rendered', strpos( $big_html, 'High SEO Impact' ) !== false );
+check( '[v2.7] Medium SEO Impact badge rendered', strpos( $big_html, 'Medium SEO Impact' ) !== false );
+check( '[v2.7] Low SEO Impact badge rendered', strpos( $big_html, 'Low SEO Impact' ) !== false );
+
+// Suggested priority order
+check( '[v2.7] "Suggested priority order" section', strpos( $big_html, 'Suggested priority order' ) !== false );
+check( '[v2.7] priority order col: Fix first', strpos( $big_html, 'Fix first' ) !== false );
+check( '[v2.7] priority order col: Fix next',  strpos( $big_html, 'Fix next' ) !== false );
+check( '[v2.7] priority order col: Fix later', strpos( $big_html, 'Fix later' ) !== false );
+
+// Export summary metrics
+check( '[v2.7] Export summary metrics section', strpos( $big_html, 'Export summary metrics' ) !== false );
+check( '[v2.7] metric: Pages analysed', strpos( $big_html, 'Pages analysed' ) !== false );
+check( '[v2.7] metric: Money pages', strpos( $big_html, 'Money pages' ) !== false );
+check( '[v2.7] metric: Location pages', strpos( $big_html, 'Location pages' ) !== false );
+check( '[v2.7] metric: Support pages', strpos( $big_html, 'Support pages' ) !== false );
+check( '[v2.7] metric: Orphan pages', strpos( $big_html, 'Orphan pages' ) !== false );
+check( '[v2.7] metric: Near-orphan pages', strpos( $big_html, 'Near-orphan pages' ) !== false );
+check( '[v2.7] metric: Weak money pages', strpos( $big_html, 'Weak money pages' ) !== false );
+check( '[v2.7] metric: Link opportunities', strpos( $big_html, 'Link opportunities' ) !== false );
 
 echo "\n";
 if ( $fail === 0 ) { echo "ALL ASSERTIONS PASS\n"; exit( 0 ); }

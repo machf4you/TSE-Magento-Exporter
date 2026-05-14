@@ -1,18 +1,23 @@
 <?php
 /**
- * TSE Site Exporter — Static HTML reports (V2.6.0).
+ * TSE Site Exporter — Static HTML reports (V2.7.0).
  *
  * Self-contained, framework-free HTML reports rendered from the AI runner
- * outputs PLUS the deterministic AI-summary inputs (page titles, page types,
- * linking signals) so each affected page renders with a readable label, not
- * a raw URL.
+ * outputs PLUS the deterministic AI-summary inputs.
  *
- * Three reports are produced:
- *   - ai-report.html              — exec summary + quick wins + recs + gaps
- *   - internal-link-report.html   — refined LLM link opportunities
- *   - cluster-report.html         — findings grouped by cluster_id
+ * V2.7 readability pass adds:
+ *  - Wider layout (~1600px max), sticky table headers
+ *  - Collapsible affected-pages lists (>3 pages → native <details>)
+ *  - Recommendations grouped by type (Metadata / Linking / Cannibalisation /
+ *    Thin Content / Authority / Cluster·Architecture / Other)
+ *  - Estimated SEO impact column (separate from confidence)
+ *  - "Suggested priority order" 3-column block at top (Fix first / next / later)
+ *  - Export summary metrics strip (totals + breakdowns)
  *
- * No JavaScript, no external CSS, no images. Every report is a single file.
+ * Three reports produced (filenames unchanged):
+ *   - ai-report.html
+ *   - internal-link-report.html
+ *   - cluster-report.html
  */
 
 if ( ! defined( 'ABSPATH' ) ) {
@@ -22,11 +27,9 @@ if ( ! defined( 'ABSPATH' ) ) {
 /**
  * Public entry. Returns array of filename => HTML string.
  *
- * @param array $runner_output The {filename => payload} map from the runner.
- * @param array $context       Optional. Keys: pages, linking, site, cluster (the
- *                             deterministic AI summary slices). Enables page
- *                             labels + page-type pills + exec summary + quick
- *                             wins.
+ * @param array $runner_output {filename => payload} map from runner.
+ * @param array $context       Optional deterministic AI summary slices:
+ *                             {pages, linking, site, cluster}.
  */
 function tse_ai_report_build( $runner_output, $context = array() ) {
     $meta = isset( $runner_output['manifest.json'] ) ? $runner_output['manifest.json'] : array();
@@ -46,10 +49,10 @@ function tse_ai_report_build( $runner_output, $context = array() ) {
 }
 
 /* -------------------------------------------------------------------------
- * Context normalisation: build URL → {title, page_type, path, ...}.
+ * Context normalisation: build URL → metadata index.
  * ---------------------------------------------------------------------- */
 function tse_ai_report_build_page_index( $context ) {
-    $idx   = array();
+    $idx = array();
     if ( empty( $context['pages'] ) || ! is_array( $context['pages'] ) ) return $idx;
 
     $type_label = array(
@@ -64,19 +67,13 @@ function tse_ai_report_build_page_index( $context ) {
         'other'    => 'Page',
     );
     $type_color = array(
-        'money'    => 'money',
-        'service'  => 'service',
-        'location' => 'location',
-        'product'  => 'product',
-        'category' => 'product',
-        'article'  => 'article',
-        'support'  => 'support',
-        'homepage' => 'home',
-        'other'    => 'neutral',
+        'money'    => 'money',    'service'  => 'service',  'location' => 'location',
+        'product'  => 'product',  'category' => 'product',  'article'  => 'article',
+        'support'  => 'support',  'homepage' => 'home',     'other'    => 'neutral',
     );
 
     foreach ( $context['pages'] as $p ) {
-        $url   = isset( $p['url'] )   ? (string) $p['url']   : '';
+        $url = isset( $p['url'] ) ? (string) $p['url'] : '';
         if ( '' === $url ) continue;
         $title = isset( $p['title'] ) ? trim( (string) $p['title'] ) : '';
         $st    = isset( $p['strategic_type'] ) ? (string) $p['strategic_type'] : 'other';
@@ -85,61 +82,63 @@ function tse_ai_report_build_page_index( $context ) {
         if ( isset( $parts['path'] ) && '' !== $parts['path'] ) $path = rtrim( $parts['path'], '/' ) . '/';
         if ( '' === $path ) $path = '/';
 
-        $idx[ $url ] = array(
+        $entry = array(
             'title'           => '' !== $title ? $title : null,
             'path'            => $path,
             'strategic_type'  => $st,
             'page_type_label' => isset( $type_label[ $st ] ) ? $type_label[ $st ] : $type_label['other'],
             'page_type_class' => isset( $type_color[ $st ] ) ? $type_color[ $st ] : 'neutral',
         );
-        // Also index by trailing-slash-normalised variant for resilience.
-        $alt = rtrim( $url, '/' );
-        if ( $alt !== $url ) $idx[ $alt ] = $idx[ $url ];
-        $alt2 = $url . ( substr( $url, -1 ) === '/' ? '' : '/' );
-        if ( $alt2 !== $url ) $idx[ $alt2 ] = $idx[ $url ];
+        $idx[ $url ] = $entry;
+        $alt  = rtrim( $url, '/' );      if ( $alt  !== $url ) $idx[ $alt ]  = $entry;
+        $alt2 = $url . '/';              if ( $alt2 !== $url ) $idx[ $alt2 ] = $entry;
     }
     return $idx;
 }
 
 function tse_ai_report_lookup_page( $url, $page_index ) {
     if ( isset( $page_index[ $url ] ) ) return $page_index[ $url ];
-    $alt = rtrim( $url, '/' );
-    if ( isset( $page_index[ $alt ] ) ) return $page_index[ $alt ];
-    $alt2 = $url . '/';
-    if ( isset( $page_index[ $alt2 ] ) ) return $page_index[ $alt2 ];
+    $alt = rtrim( $url, '/' );  if ( isset( $page_index[ $alt ] ) )  return $page_index[ $alt ];
+    $alt2 = $url . '/';         if ( isset( $page_index[ $alt2 ] ) ) return $page_index[ $alt2 ];
     return null;
 }
 
 /* -------------------------------------------------------------------------
- * Shared chrome (CSS, header, footer)
+ * Shared CSS
  * ---------------------------------------------------------------------- */
 function tse_ai_report_css() {
     return <<<CSS
 :root { color-scheme: light; }
 *,*:before,*:after { box-sizing: border-box; }
 body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; color: #111827; background: #f9fafb; line-height: 1.5; }
-.wrap { max-width: 1240px; margin: 0 auto; padding: 32px 24px 64px; }
-header.tse-h { background: #111827; color: #f9fafb; padding: 28px 24px; }
-header.tse-h .inner { max-width: 1240px; margin: 0 auto; }
+.wrap { max-width: 1600px; margin: 0 auto; padding: 32px 32px 64px; }
+header.tse-h { background: #111827; color: #f9fafb; padding: 28px 32px; }
+header.tse-h .inner { max-width: 1600px; margin: 0 auto; }
 header.tse-h h1 { margin: 0 0 6px; font-size: 22px; font-weight: 600; letter-spacing: -0.01em; }
 header.tse-h .meta { font-size: 13px; color: #9ca3af; display: flex; flex-wrap: wrap; gap: 16px; margin-top: 8px; }
 header.tse-h .meta span strong { color: #e5e7eb; font-weight: 500; }
 h2.section { font-size: 16px; font-weight: 600; margin: 32px 0 8px; color: #111827; letter-spacing: -0.005em; display:flex; align-items:center; gap:10px; }
 h2.section .count { font-size: 12px; font-weight: 500; color: #6b7280; background: #f3f4f6; padding: 2px 8px; border-radius: 999px; }
+h3.subsection { font-size: 14px; font-weight: 600; margin: 22px 0 8px; color: #374151; display:flex; align-items:center; gap:8px; }
+h3.subsection .count { font-size: 11px; font-weight: 500; color: #6b7280; background: #f3f4f6; padding: 2px 8px; border-radius: 999px; }
 .why { font-size: 13px; color: #6b7280; font-style: italic; margin: -2px 0 12px; }
 .empty { background: #ffffff; border: 1px dashed #d1d5db; border-radius: 8px; padding: 20px; color: #6b7280; font-size: 14px; }
-table.tse { width: 100%; border-collapse: collapse; background: #ffffff; border: 1px solid #e5e7eb; border-radius: 10px; overflow: hidden; font-size: 14px; table-layout: fixed; }
+table.tse { width: 100%; border-collapse: separate; border-spacing: 0; background: #ffffff; border: 1px solid #e5e7eb; border-radius: 10px; overflow: hidden; font-size: 14px; table-layout: fixed; }
 table.tse th, table.tse td { padding: 12px 14px; text-align: left; vertical-align: top; border-bottom: 1px solid #f3f4f6; word-wrap: break-word; }
-table.tse th { background: #f9fafb; font-weight: 600; color: #374151; font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em; }
+table.tse thead th { background: #f9fafb; font-weight: 600; color: #374151; font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em; position: sticky; top: 0; z-index: 2; box-shadow: inset 0 -1px 0 #e5e7eb; }
 table.tse tr:last-child td { border-bottom: 0; }
 table.tse td a { color: #2563eb; text-decoration: none; word-break: break-all; }
 table.tse td a:hover { text-decoration: underline; }
 .badge { display: inline-block; padding: 3px 9px; border-radius: 999px; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; line-height: 1.4; white-space: nowrap; }
-.badge.high { background: #fee2e2; color: #991b1b; }
+.badge.high   { background: #fee2e2; color: #991b1b; }
 .badge.medium { background: #fef3c7; color: #92400e; }
-.badge.low { background: #dcfce7; color: #166534; }
-.badge.kind { background: #e0e7ff; color: #3730a3; }
+.badge.low    { background: #dcfce7; color: #166534; }
+.badge.kind   { background: #e0e7ff; color: #3730a3; }
 .badge.confidence { background: #f3f4f6; color: #374151; font-variant-numeric: tabular-nums; }
+.impact { display: inline-block; padding: 3px 8px; border-radius: 6px; font-size: 11px; font-weight: 600; line-height: 1.4; white-space: nowrap; border: 1px solid transparent; }
+.impact.high   { background: #fef2f2; color: #991b1b; border-color: #fecaca; }
+.impact.medium { background: #fffbeb; color: #92400e; border-color: #fde68a; }
+.impact.low    { background: #f0fdf4; color: #166534; border-color: #bbf7d0; }
 .pt { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 500; line-height: 1.4; }
 .pt.money    { background: #fee2e2; color: #991b1b; }
 .pt.service  { background: #ffedd5; color: #9a3412; }
@@ -149,19 +148,29 @@ table.tse td a:hover { text-decoration: underline; }
 .pt.support  { background: #dcfce7; color: #166534; }
 .pt.home     { background: #fef9c3; color: #854d0e; }
 .pt.neutral  { background: #f3f4f6; color: #4b5563; }
-.pages { display: flex; flex-direction: column; gap: 10px; max-height: 240px; overflow-y: auto; }
+.pages { display: flex; flex-direction: column; gap: 10px; }
 .page-cell { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .page-cell .ptitle { font-weight: 500; color: #111827; font-size: 14px; word-break: break-word; }
 .page-cell .ppath { font-size: 12px; color: #6b7280; font-family: ui-monospace, SFMono-Regular, monospace; word-break: break-all; }
 .page-cell .ppath a { color: #6b7280; }
 .page-cell .ppath a:hover { color: #2563eb; }
 .page-cell .pmeta { margin-top: 3px; display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.pages details { margin-top: 2px; }
+.pages details summary { cursor: pointer; color: #2563eb; font-size: 12px; padding: 4px 0; user-select: none; list-style: none; font-weight: 500; }
+.pages details summary::-webkit-details-marker { display: none; }
+.pages details summary:hover { text-decoration: underline; }
+.pages details[open] summary { color: #6b7280; }
+.pages details .more { display: flex; flex-direction: column; gap: 10px; margin-top: 8px; }
 .recommendation { color: #374151; }
 .error { background: #fef2f2; border: 1px solid #fecaca; color: #991b1b; padding: 14px 16px; border-radius: 8px; font-size: 14px; margin: 12px 0; }
 .error code { background: #fff1f2; padding: 2px 5px; border-radius: 4px; font-size: 12px; }
 .anchor-suggest { display: inline-block; background: #ecfdf5; color: #065f46; padding: 2px 8px; border-radius: 4px; font-size: 12px; font-family: ui-monospace, SFMono-Regular, monospace; }
 footer.tse-f { color: #6b7280; font-size: 12px; text-align: center; margin: 32px 0 24px; }
-.exec { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; margin: 12px 0 8px; }
+.metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; margin: 12px 0 8px; }
+.metrics .m { background: #ffffff; border: 1px solid #e5e7eb; border-radius: 10px; padding: 12px 14px; }
+.metrics .m .lbl { font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: #6b7280; font-weight: 600; }
+.metrics .m .num { font-size: 22px; font-weight: 600; color: #111827; font-variant-numeric: tabular-nums; line-height: 1; margin-top: 4px; }
+.exec { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; margin: 12px 0 8px; }
 .exec .card { background: #ffffff; border: 1px solid #e5e7eb; border-radius: 10px; padding: 14px 16px; display: flex; flex-direction: column; gap: 4px; }
 .exec .card .lbl { font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: #6b7280; font-weight: 600; }
 .exec .card .num { font-size: 26px; font-weight: 600; color: #111827; font-variant-numeric: tabular-nums; line-height: 1; margin-top: 4px; }
@@ -170,14 +179,26 @@ footer.tse-f { color: #6b7280; font-size: 12px; text-align: center; margin: 32px
 .exec .card.l .num { color: #166534; }
 .exec .card .sub { font-size: 12px; color: #6b7280; }
 .qw { background: #ffffff; border: 1px solid #e5e7eb; border-radius: 10px; padding: 4px 0; margin-top: 4px; }
-.qw .qw-row { display: grid; grid-template-columns: 28px 1fr auto; gap: 12px; padding: 12px 16px; border-bottom: 1px solid #f3f4f6; align-items: flex-start; }
+.qw .qw-row { display: grid; grid-template-columns: 28px 1fr; gap: 12px; padding: 12px 16px; border-bottom: 1px solid #f3f4f6; align-items: flex-start; }
 .qw .qw-row:last-child { border-bottom: 0; }
 .qw .num-circle { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; border-radius: 50%; background: #111827; color: #ffffff; font-size: 12px; font-weight: 600; margin-top: 2px; }
 .qw .qw-row .title { font-weight: 500; }
 .qw .qw-row .desc { font-size: 13px; color: #6b7280; margin-top: 3px; }
-.qw .qw-row .qw-pages { font-size: 13px; margin-top: 6px; display: flex; flex-direction: column; gap: 4px; }
-.qw .qw-row .qw-pages a { color: #2563eb; text-decoration: none; word-break: break-all; }
-.qw .qw-row .qw-pages a:hover { text-decoration: underline; }
+.qw .qw-row .qw-pages { font-size: 13px; margin-top: 6px; display: flex; flex-direction: column; gap: 8px; }
+.priority-order { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin: 12px 0 8px; }
+.priority-order .col { background: #ffffff; border: 1px solid #e5e7eb; border-radius: 10px; padding: 14px 16px; }
+.priority-order .col h4 { margin: 0 0 8px; font-size: 13px; font-weight: 600; display:flex; align-items:center; gap:8px; }
+.priority-order .col h4 .pill { font-size: 11px; padding: 2px 8px; border-radius: 999px; font-weight: 600; }
+.priority-order .col.first  h4 .pill { background: #fee2e2; color: #991b1b; }
+.priority-order .col.next   h4 .pill { background: #fef3c7; color: #92400e; }
+.priority-order .col.later  h4 .pill { background: #dcfce7; color: #166534; }
+.priority-order ol { margin: 0; padding-left: 18px; font-size: 13px; color: #374151; }
+.priority-order ol li { margin-bottom: 8px; line-height: 1.4; }
+.priority-order ol li .target { color: #6b7280; font-size: 12px; font-family: ui-monospace, SFMono-Regular, monospace; }
+.priority-order .empty-mini { font-size: 13px; color: #9ca3af; font-style: italic; }
+@media (max-width: 900px) {
+  .priority-order { grid-template-columns: 1fr; }
+}
 CSS;
 }
 
@@ -187,7 +208,6 @@ function tse_ai_report_header( $title, $meta ) {
     $site_url = isset( $meta['site_url'] ) ? $meta['site_url'] : '';
     $site     = isset( $meta['site_name'] )? $meta['site_name']: '';
     $when     = isset( $meta['generated_at'] ) ? $meta['generated_at'] : '';
-
     $css = tse_ai_report_css();
     $h   = htmlspecialchars( $title, ENT_QUOTES, 'UTF-8' );
     return "<!doctype html>\n"
@@ -214,21 +234,20 @@ function tse_ai_report_footer() {
 }
 
 /* -------------------------------------------------------------------------
- * Page cell renderer (title over path + page-type pill)
+ * Helpers — pages, badges, sorting
  * ---------------------------------------------------------------------- */
 function tse_ai_report_page_cell( $url, $page_index, $show_pill = true ) {
     $url_safe = htmlspecialchars( (string) $url, ENT_QUOTES, 'UTF-8' );
     $hit = tse_ai_report_lookup_page( $url, $page_index );
     $title = $hit && ! empty( $hit['title'] ) ? $hit['title'] : '';
     $path  = $hit && ! empty( $hit['path'] )  ? $hit['path']  : $url;
-    $path_safe  = htmlspecialchars( (string) $path,  ENT_QUOTES, 'UTF-8' );
+    $path_safe = htmlspecialchars( (string) $path, ENT_QUOTES, 'UTF-8' );
 
     $out = '<div class="page-cell">';
     if ( '' !== $title ) {
         $out .= '<span class="ptitle">' . htmlspecialchars( $title, ENT_QUOTES, 'UTF-8' ) . '</span>';
         $out .= '<span class="ppath"><a href="' . $url_safe . '" target="_blank" rel="noopener">' . $path_safe . '</a></span>';
     } else {
-        // Fall back to the URL itself as the visible link.
         $out .= '<span class="ptitle"><a href="' . $url_safe . '" target="_blank" rel="noopener">' . $url_safe . '</a></span>';
     }
     if ( $show_pill && $hit ) {
@@ -238,30 +257,40 @@ function tse_ai_report_page_cell( $url, $page_index, $show_pill = true ) {
     return $out . '</div>';
 }
 
+/**
+ * Render a list of affected pages. Shows the first 3 by default; the rest
+ * collapse into a native <details> "Show N more pages" element (no JS).
+ */
 function tse_ai_report_pages_cell( $urls, $page_index ) {
     if ( empty( $urls ) || ! is_array( $urls ) ) return '<span style="color:#9ca3af">—</span>';
+    $urls   = array_values( $urls );
+    $visible = array_slice( $urls, 0, 3 );
+    $extra   = array_slice( $urls, 3 );
+
     $out = '<div class="pages">';
-    foreach ( $urls as $u ) {
+    foreach ( $visible as $u ) {
         $out .= tse_ai_report_page_cell( $u, $page_index, false );
+    }
+    if ( ! empty( $extra ) ) {
+        $more = count( $extra );
+        $out .= '<details><summary>Show ' . $more . ' more page' . ( $more === 1 ? '' : 's' ) . '</summary><div class="more">';
+        foreach ( $extra as $u ) {
+            $out .= tse_ai_report_page_cell( $u, $page_index, false );
+        }
+        $out .= '</div></details>';
     }
     return $out . '</div>';
 }
 
-/* -------------------------------------------------------------------------
- * Helpers
- * ---------------------------------------------------------------------- */
 function tse_ai_report_priority_class( $p ) {
     $p = strtolower( (string) $p );
-    if ( in_array( $p, array( 'high', 'medium', 'low' ), true ) ) return $p;
-    return 'low';
+    return in_array( $p, array( 'high', 'medium', 'low' ), true ) ? $p : 'low';
 }
-
 function tse_ai_report_priority_rank( $p ) {
     $map = array( 'high' => 0, 'medium' => 1, 'low' => 2 );
     $p   = strtolower( (string) $p );
     return isset( $map[ $p ] ) ? $map[ $p ] : 3;
 }
-
 function tse_ai_report_sort_by_priority( $items ) {
     usort( $items, function( $a, $b ) {
         $pa = tse_ai_report_priority_rank( isset( $a['priority'] ) ? $a['priority'] : '' );
@@ -279,7 +308,6 @@ function tse_ai_report_sort_by_priority( $items ) {
 function tse_ai_report_badge( $text, $class = '' ) {
     return '<span class="badge ' . $class . '">' . htmlspecialchars( (string) $text, ENT_QUOTES, 'UTF-8' ) . '</span>';
 }
-
 function tse_ai_report_confidence_badge( $score ) {
     if ( ! is_numeric( $score ) ) return '';
     $pct = (int) round( ( (float) $score ) * 100 );
@@ -300,13 +328,220 @@ function tse_ai_report_section_heading( $label, $count ) {
     return '<h2 class="section">' . htmlspecialchars( $label, ENT_QUOTES, 'UTF-8' )
         . '<span class="count">' . (int) $count . '</span></h2>';
 }
-
+function tse_ai_report_subsection_heading( $label, $count ) {
+    return '<h3 class="subsection">' . htmlspecialchars( $label, ENT_QUOTES, 'UTF-8' )
+        . '<span class="count">' . (int) $count . '</span></h3>';
+}
 function tse_ai_report_why( $text ) {
     return '<p class="why">' . htmlspecialchars( $text, ENT_QUOTES, 'UTF-8' ) . '</p>';
 }
 
 /* -------------------------------------------------------------------------
- * Executive Summary
+ * Estimated impact (separate from confidence)
+ * ---------------------------------------------------------------------- */
+function tse_ai_report_estimated_impact( $item, $page_index ) {
+    $priority = strtolower( isset( $item['priority'] ) ? (string) $item['priority'] : '' );
+    $conf     = isset( $item['confidence_score'] ) ? (float) $item['confidence_score'] : 0;
+    $pages    = isset( $item['affected_pages'] ) && is_array( $item['affected_pages'] ) ? $item['affected_pages'] : array();
+    $important_hit = false;
+    foreach ( $pages as $u ) {
+        $hit = tse_ai_report_lookup_page( $u, $page_index );
+        if ( $hit && in_array( $hit['strategic_type'], array( 'money', 'service', 'location', 'product', 'category' ), true ) ) {
+            $important_hit = true; break;
+        }
+    }
+    if ( 'high' === $priority && ( $important_hit || $conf >= 0.85 ) ) return 'high';
+    if ( 'medium' === $priority && $important_hit )                   return 'high';
+    if ( 'high' === $priority )                                       return 'medium';
+    if ( 'medium' === $priority )                                     return 'medium';
+    return 'low';
+}
+function tse_ai_report_impact_badge( $level ) {
+    $label = strtoupper( $level ) === 'HIGH' ? 'High SEO Impact'
+           : ( strtoupper( $level ) === 'MEDIUM' ? 'Medium SEO Impact' : 'Low SEO Impact' );
+    return '<span class="impact ' . htmlspecialchars( $level, ENT_QUOTES, 'UTF-8' ) . '">'
+         . htmlspecialchars( $label, ENT_QUOTES, 'UTF-8' ) . '</span>';
+}
+
+/* -------------------------------------------------------------------------
+ * Grouping by display category (Metadata / Linking / Cannibalisation /
+ * Thin Content / Authority / Cluster / Other).
+ * ---------------------------------------------------------------------- */
+function tse_ai_report_group_for( $item ) {
+    $cat = strtolower( isset( $item['category'] ) ? (string) $item['category'] : '' );
+    $gt  = strtolower( isset( $item['gap_type'] ) ? (string) $item['gap_type'] : '' );
+    $issue = strtolower( isset( $item['issue'] ) ? (string) $item['issue'] : '' );
+    $rec   = strtolower( isset( $item['recommendation'] ) ? (string) $item['recommendation'] : '' );
+    $hay   = $cat . ' ' . $gt . ' ' . $issue . ' ' . $rec;
+
+    if ( in_array( $cat, array( 'metadata' ), true ) || 'metadata_weak' === $gt ) return 'Metadata';
+    if ( in_array( $cat, array( 'linking' ), true ) ) return 'Linking';
+    if ( in_array( $cat, array( 'cannibalisation', 'cannibalization' ), true )
+      || in_array( $gt, array( 'cannibalisation', 'cannibalization', 'topic_overlap' ), true )
+      || false !== strpos( $hay, 'cannibal' )
+      || false !== strpos( $hay, 'duplicate meta' ) ) return 'Cannibalisation';
+    if ( in_array( $cat, array( 'content' ), true ) || 'thin_content' === $gt ) return 'Thin Content';
+    if ( in_array( $cat, array( 'authority' ), true ) ) return 'Authority';
+    if ( in_array( $cat, array( 'cluster' ), true ) || 'isolated' === ( isset( $item['finding_type'] ) ? strtolower( $item['finding_type'] ) : '' ) ) return 'Cluster / Architecture';
+    if ( in_array( $gt, array( 'missing_support', 'missing_money' ), true ) ) return 'Other';
+    if ( false !== strpos( $hay, 'meta title' ) || false !== strpos( $hay, 'meta description' ) ) return 'Metadata';
+    if ( false !== strpos( $hay, 'internal link' ) || false !== strpos( $hay, 'orphan' ) ) return 'Linking';
+    if ( false !== strpos( $hay, 'thin' ) || false !== strpos( $hay, 'word count' ) ) return 'Thin Content';
+    if ( false !== strpos( $hay, 'authority' ) ) return 'Authority';
+    return 'Other';
+}
+
+function tse_ai_report_grouped_table( $items, $page_index ) {
+    if ( empty( $items ) ) return '';
+    $order = array( 'Metadata', 'Linking', 'Cannibalisation', 'Thin Content', 'Authority', 'Cluster / Architecture', 'Other' );
+    $bucket = array();
+    foreach ( $items as $it ) {
+        $bucket[ tse_ai_report_group_for( $it ) ][] = $it;
+    }
+    $out = '';
+    foreach ( $order as $section ) {
+        if ( empty( $bucket[ $section ] ) ) continue;
+        $rows = tse_ai_report_sort_by_priority( $bucket[ $section ] );
+        $out .= tse_ai_report_subsection_heading( $section, count( $rows ) );
+        $out .= tse_ai_report_render_rec_table( $rows, $page_index );
+    }
+    return $out;
+}
+
+function tse_ai_report_render_rec_table( $rows, $page_index ) {
+    $html = '<table class="tse"><colgroup>'
+          . '<col style="width:80px">'
+          . '<col style="width:22%">'
+          . '<col style="width:28%">'
+          . '<col>'
+          . '<col style="width:140px">'
+          . '<col style="width:130px">'
+          . '</colgroup><thead><tr>'
+          . '<th>Priority</th>'
+          . '<th>Issue</th>'
+          . '<th>Affected pages</th>'
+          . '<th>Recommendation</th>'
+          . '<th>Impact</th>'
+          . '<th>Type / Confidence</th>'
+          . '</tr></thead><tbody>';
+    foreach ( $rows as $it ) {
+        $pr    = tse_ai_report_priority_class( isset( $it['priority'] ) ? $it['priority'] : '' );
+        $issue = htmlspecialchars( (string) ( isset( $it['issue'] ) ? $it['issue'] : '' ), ENT_QUOTES, 'UTF-8' );
+        $rec_t = htmlspecialchars( (string) ( isset( $it['recommendation'] ) ? $it['recommendation'] : '' ), ENT_QUOTES, 'UTF-8' );
+        $cat   = isset( $it['category'] ) ? $it['category'] : ( isset( $it['gap_type'] ) ? $it['gap_type'] : '' );
+        $impact= tse_ai_report_estimated_impact( $it, $page_index );
+        $html .= '<tr>'
+              . '<td>' . tse_ai_report_badge( strtoupper( $pr ), $pr ) . '</td>'
+              . '<td>' . $issue . '</td>'
+              . '<td>' . tse_ai_report_pages_cell( isset( $it['affected_pages'] ) ? $it['affected_pages'] : array(), $page_index ) . '</td>'
+              . '<td class="recommendation">' . $rec_t . '</td>'
+              . '<td>' . tse_ai_report_impact_badge( $impact ) . '</td>'
+              . '<td>'
+              . ( $cat ? tse_ai_report_badge( $cat, 'kind' ) . '<br>' : '' )
+              . tse_ai_report_confidence_badge( isset( $it['confidence_score'] ) ? $it['confidence_score'] : null )
+              . '</td>'
+              . '</tr>';
+    }
+    $html .= '</tbody></table>';
+    return $html;
+}
+
+/* -------------------------------------------------------------------------
+ * Export Summary Metrics
+ * ---------------------------------------------------------------------- */
+function tse_ai_report_export_metrics( $context, $links ) {
+    $pages = isset( $context['pages'] ) ? $context['pages'] : array();
+    $total = count( $pages );
+    $by_type = array( 'money' => 0, 'service' => 0, 'support' => 0, 'article' => 0, 'location' => 0, 'product' => 0, 'category' => 0, 'homepage' => 0, 'other' => 0 );
+    foreach ( $pages as $p ) {
+        $t = isset( $p['strategic_type'] ) ? $p['strategic_type'] : 'other';
+        if ( isset( $by_type[ $t ] ) ) $by_type[ $t ]++;
+    }
+    $support_total = $by_type['support'] + $by_type['article'];
+    $orphan       = isset( $context['linking']['orphan_pages'] ) ? count( $context['linking']['orphan_pages'] ) : 0;
+    $near_orphan  = isset( $context['linking']['near_orphan_pages'] ) ? count( $context['linking']['near_orphan_pages'] ) : 0;
+    $weak_money   = isset( $context['linking']['weak_money_pages'] ) ? count( $context['linking']['weak_money_pages'] ) : 0;
+    $link_opps    = isset( $links['items'] ) ? count( $links['items'] ) : 0;
+
+    $cards = array(
+        array( 'lbl' => 'Pages analysed',       'num' => $total ),
+        array( 'lbl' => 'Money pages',          'num' => $by_type['money'] ),
+        array( 'lbl' => 'Service pages',        'num' => $by_type['service'] ),
+        array( 'lbl' => 'Location pages',       'num' => $by_type['location'] ),
+        array( 'lbl' => 'Support pages',        'num' => $support_total ),
+        array( 'lbl' => 'Orphan pages',         'num' => $orphan ),
+        array( 'lbl' => 'Near-orphan pages',    'num' => $near_orphan ),
+        array( 'lbl' => 'Weak money pages',     'num' => $weak_money ),
+        array( 'lbl' => 'Link opportunities',   'num' => $link_opps ),
+    );
+    $html = tse_ai_report_section_heading( 'Export summary metrics', count( $cards ) );
+    $html .= tse_ai_report_why( 'Deterministic site totals from the underlying export.' );
+    $html .= '<div class="metrics">';
+    foreach ( $cards as $c ) {
+        $html .= '<div class="m"><div class="lbl">' . htmlspecialchars( $c['lbl'], ENT_QUOTES, 'UTF-8' ) . '</div>'
+              . '<div class="num">' . (int) $c['num'] . '</div></div>';
+    }
+    return $html . '</div>';
+}
+
+/* -------------------------------------------------------------------------
+ * Suggested Priority Order — Fix first / next / later
+ * ---------------------------------------------------------------------- */
+function tse_ai_report_priority_order_block( $rec_items, $gap_items, $page_index ) {
+    $all = array_merge(
+        isset( $rec_items['items'] ) ? $rec_items['items'] : array(),
+        isset( $gap_items['items'] ) ? $gap_items['items'] : array()
+    );
+    $sorted = tse_ai_report_sort_by_priority( $all );
+
+    $first = array(); $next = array(); $later = array();
+    foreach ( $sorted as $it ) {
+        $p = strtolower( isset( $it['priority'] ) ? (string) $it['priority'] : '' );
+        if ( 'high' === $p && count( $first ) < 4 )       $first[] = $it;
+        elseif ( 'medium' === $p && count( $next ) < 4 )  $next[]  = $it;
+        elseif ( 'low' === $p && count( $later ) < 4 )    $later[] = $it;
+        if ( count( $first ) >= 4 && count( $next ) >= 4 && count( $later ) >= 4 ) break;
+    }
+
+    $render_col = function( $items, $title, $class, $pill ) use ( $page_index ) {
+        $h = '<div class="col ' . $class . '"><h4>' . htmlspecialchars( $title, ENT_QUOTES, 'UTF-8' )
+           . '<span class="pill">' . htmlspecialchars( $pill, ENT_QUOTES, 'UTF-8' ) . '</span></h4>';
+        if ( empty( $items ) ) {
+            $h .= '<p class="empty-mini">Nothing flagged at this level.</p>';
+        } else {
+            $h .= '<ol>';
+            foreach ( $items as $it ) {
+                $issue = htmlspecialchars( (string) ( isset( $it['issue'] ) ? $it['issue'] : '' ), ENT_QUOTES, 'UTF-8' );
+                $target = '';
+                if ( ! empty( $it['affected_pages'] ) && is_array( $it['affected_pages'] ) ) {
+                    $hit = tse_ai_report_lookup_page( $it['affected_pages'][0], $page_index );
+                    if ( $hit && ! empty( $hit['title'] ) ) {
+                        $target = $hit['title'];
+                    } else {
+                        $target = $hit && ! empty( $hit['path'] ) ? $hit['path'] : $it['affected_pages'][0];
+                    }
+                }
+                $h .= '<li>' . $issue
+                    . ( $target ? ' <span class="target">— ' . htmlspecialchars( $target, ENT_QUOTES, 'UTF-8' ) . '</span>' : '' )
+                    . '</li>';
+            }
+            $h .= '</ol>';
+        }
+        return $h . '</div>';
+    };
+
+    $html  = tse_ai_report_section_heading( 'Suggested priority order', count( $first ) + count( $next ) + count( $later ) );
+    $html .= tse_ai_report_why( 'Work top-to-bottom. Fix first → highest blast radius, fix later → polish.' );
+    $html .= '<div class="priority-order">'
+           . $render_col( $first, 'Fix first',  'first', 'HIGH' )
+           . $render_col( $next,  'Fix next',   'next',  'MEDIUM' )
+           . $render_col( $later, 'Fix later',  'later', 'LOW' )
+           . '</div>';
+    return $html;
+}
+
+/* -------------------------------------------------------------------------
+ * Executive Summary cards (unchanged from V2.6)
  * ---------------------------------------------------------------------- */
 function tse_ai_report_executive_summary( $recs, $gaps, $context ) {
     $rec_items = isset( $recs['items'] ) ? $recs['items'] : array();
@@ -318,17 +553,14 @@ function tse_ai_report_executive_summary( $recs, $gaps, $context ) {
         if ( 'high'   === $p ) $high++;
         if ( 'medium' === $p ) $med++;
     }
-
-    $near_orphans = 0; $weak_money = 0;
-    if ( ! empty( $context['linking']['near_orphan_pages'] ) ) $near_orphans = count( $context['linking']['near_orphan_pages'] );
-    if ( ! empty( $context['linking']['weak_money_pages'] ) )  $weak_money   = count( $context['linking']['weak_money_pages'] );
+    $near_orphans = isset( $context['linking']['near_orphan_pages'] ) ? count( $context['linking']['near_orphan_pages'] ) : 0;
+    $weak_money   = isset( $context['linking']['weak_money_pages'] )  ? count( $context['linking']['weak_money_pages'] ) : 0;
 
     $cannibal = 0;
     foreach ( $gap_items as $g ) {
         $gt = strtolower( isset( $g['gap_type'] ) ? (string) $g['gap_type'] : '' );
         if ( 'cannibalisation' === $gt || 'cannibalization' === $gt || 'topic_overlap' === $gt ) $cannibal++;
     }
-    // Also count deterministic duplicate metadata as cannibalisation risks.
     if ( ! empty( $context['linking']['duplicate_meta_titles'] ) )       $cannibal += count( $context['linking']['duplicate_meta_titles'] );
     if ( ! empty( $context['linking']['duplicate_meta_descriptions'] ) ) $cannibal += count( $context['linking']['duplicate_meta_descriptions'] );
 
@@ -340,35 +572,32 @@ function tse_ai_report_executive_summary( $recs, $gaps, $context ) {
     }
 
     $cards = array(
-        array( 'lbl' => 'High Priority Issues',    'num' => $high,         'cls' => 'h', 'sub' => 'From AI recommendations' ),
-        array( 'lbl' => 'Medium Priority Issues',  'num' => $med,          'cls' => 'm', 'sub' => 'From AI recommendations' ),
-        array( 'lbl' => 'Near-Orphan Pages',       'num' => $near_orphans, 'cls' => 'm', 'sub' => 'Pages with only 1 inbound link' ),
-        array( 'lbl' => 'Weak Money Pages',        'num' => $weak_money,   'cls' => 'h', 'sub' => 'Below-median authority' ),
-        array( 'lbl' => 'Cannibalisation Risks',   'num' => $cannibal,     'cls' => 'm', 'sub' => 'Duplicate / overlapping signals' ),
-        array( 'lbl' => 'Thin Content Signals',    'num' => $thin,         'cls' => 'l', 'sub' => 'Pages under 300 words' ),
+        array( 'lbl' => 'High Priority Issues',   'num' => $high,         'cls' => 'h', 'sub' => 'From AI recommendations' ),
+        array( 'lbl' => 'Medium Priority Issues', 'num' => $med,          'cls' => 'm', 'sub' => 'From AI recommendations' ),
+        array( 'lbl' => 'Near-Orphan Pages',      'num' => $near_orphans, 'cls' => 'm', 'sub' => 'Pages with only 1 inbound link' ),
+        array( 'lbl' => 'Weak Money Pages',       'num' => $weak_money,   'cls' => 'h', 'sub' => 'Below-median authority' ),
+        array( 'lbl' => 'Cannibalisation Risks',  'num' => $cannibal,     'cls' => 'm', 'sub' => 'Duplicate / overlapping signals' ),
+        array( 'lbl' => 'Thin Content Signals',   'num' => $thin,         'cls' => 'l', 'sub' => 'Pages under 300 words' ),
     );
 
     $html  = tse_ai_report_section_heading( 'Executive summary', count( $cards ) );
     $html .= tse_ai_report_why( 'A quick snapshot of where the site is bleeding authority right now.' );
     $html .= '<div class="exec">';
     foreach ( $cards as $c ) {
-        $html .= '<div class="card ' . $c['cls'] . '">';
-        $html .= '<span class="lbl">' . htmlspecialchars( $c['lbl'], ENT_QUOTES, 'UTF-8' ) . '</span>';
-        $html .= '<span class="num">' . (int) $c['num'] . '</span>';
-        $html .= '<span class="sub">' . htmlspecialchars( $c['sub'], ENT_QUOTES, 'UTF-8' ) . '</span>';
-        $html .= '</div>';
+        $html .= '<div class="card ' . $c['cls'] . '">'
+              . '<span class="lbl">' . htmlspecialchars( $c['lbl'], ENT_QUOTES, 'UTF-8' ) . '</span>'
+              . '<span class="num">' . (int) $c['num'] . '</span>'
+              . '<span class="sub">' . htmlspecialchars( $c['sub'], ENT_QUOTES, 'UTF-8' ) . '</span>'
+              . '</div>';
     }
-    $html .= '</div>';
-    return $html;
+    return $html . '</div>';
 }
 
 /* -------------------------------------------------------------------------
- * Quick Wins (deterministic, computed from inputs + LLM outputs)
+ * Quick Wins
  * ---------------------------------------------------------------------- */
 function tse_ai_report_quick_wins( $links, $context, $page_index ) {
     $wins = array();
-
-    // 1. Internal-link wins from the LLM (top 3 high-priority).
     $link_items = isset( $links['items'] ) ? $links['items'] : array();
     $link_items = tse_ai_report_sort_by_priority( $link_items );
     $taken = 0;
@@ -385,8 +614,6 @@ function tse_ai_report_quick_wins( $links, $context, $page_index ) {
         );
         $taken++;
     }
-
-    // 2. Duplicate meta titles → fix uniqueness.
     if ( ! empty( $context['linking']['duplicate_meta_titles'] ) ) {
         foreach ( array_slice( $context['linking']['duplicate_meta_titles'], 0, 2 ) as $d ) {
             $wins[] = array(
@@ -396,7 +623,6 @@ function tse_ai_report_quick_wins( $links, $context, $page_index ) {
             );
         }
     }
-    // 3. Missing meta descriptions on important pages.
     if ( ! empty( $context['pages'] ) ) {
         $missing = array();
         foreach ( $context['pages'] as $p ) {
@@ -415,8 +641,6 @@ function tse_ai_report_quick_wins( $links, $context, $page_index ) {
             );
         }
     }
-
-    // 4. Noindex candidates: thin + non-strategic + low/no incoming.
     if ( ! empty( $context['pages'] ) ) {
         $noindex = array();
         foreach ( $context['pages'] as $p ) {
@@ -439,9 +663,7 @@ function tse_ai_report_quick_wins( $links, $context, $page_index ) {
 
     $html  = tse_ai_report_section_heading( 'Quick wins', count( $wins ) );
     $html .= tse_ai_report_why( 'High-impact, low-effort actions you can ship this week.' );
-    if ( empty( $wins ) ) {
-        return $html . '<div class="empty">No quick wins detected.</div>';
-    }
+    if ( empty( $wins ) ) return $html . '<div class="empty">No quick wins detected.</div>';
     $html .= '<div class="qw">';
     $n = 0;
     foreach ( $wins as $w ) {
@@ -449,101 +671,46 @@ function tse_ai_report_quick_wins( $links, $context, $page_index ) {
         $html .= '<div class="qw-row">';
         $html .= '<span class="num-circle">' . $n . '</span>';
         $html .= '<div><div class="title">' . htmlspecialchars( $w['title'], ENT_QUOTES, 'UTF-8' ) . '</div>';
-        if ( ! empty( $w['desc'] ) ) {
-            $html .= '<div class="desc">' . htmlspecialchars( $w['desc'], ENT_QUOTES, 'UTF-8' ) . '</div>';
-        }
+        if ( ! empty( $w['desc'] ) ) $html .= '<div class="desc">' . htmlspecialchars( $w['desc'], ENT_QUOTES, 'UTF-8' ) . '</div>';
         if ( ! empty( $w['pages'] ) ) {
-            $html .= '<div class="qw-pages">';
-            foreach ( $w['pages'] as $u ) {
-                $html .= tse_ai_report_page_cell( $u, $page_index, false );
-            }
-            $html .= '</div>';
+            $html .= '<div class="qw-pages">' . tse_ai_report_pages_cell( $w['pages'], $page_index ) . '</div>';
         }
-        $html .= '</div><div></div></div>';
+        $html .= '</div></div>';
     }
-    $html .= '</div>';
-    return $html;
+    return $html . '</div>';
 }
 
 /* -------------------------------------------------------------------------
- * ai-report.html — exec summary + quick wins + recs + gaps
+ * ai-report.html
  * ---------------------------------------------------------------------- */
 function tse_ai_report_main( $meta, $recs, $gaps, $links, $context, $page_index ) {
     $html  = tse_ai_report_header( 'AI Site Analysis Report', $meta );
     $html .= tse_ai_report_render_error( $recs );
 
+    $html .= tse_ai_report_export_metrics( $context, $links );
     $html .= tse_ai_report_executive_summary( $recs, $gaps, $context );
+    $html .= tse_ai_report_priority_order_block( $recs, $gaps, $page_index );
     $html .= tse_ai_report_quick_wins( $links, $context, $page_index );
 
-    // Prioritised recommendations
-    $rec_items = tse_ai_report_sort_by_priority( isset( $recs['items'] ) ? $recs['items'] : array() );
+    // Grouped recommendations
+    $rec_items = isset( $recs['items'] ) ? $recs['items'] : array();
     $html .= tse_ai_report_section_heading( 'Prioritised recommendations', count( $rec_items ) );
-    $html .= tse_ai_report_why( 'Acting on high-priority items first preserves authority where it matters most.' );
+    $html .= tse_ai_report_why( 'Grouped by type. Acting on high-priority items first preserves authority where it matters most.' );
     if ( empty( $rec_items ) ) {
         $html .= '<div class="empty">No recommendations were returned.</div>';
     } else {
-        $html .= '<table class="tse"><colgroup>'
-              . '<col style="width:80px"><col style="width:24%"><col style="width:32%"><col><col style="width:130px">'
-              . '</colgroup><thead><tr>'
-              . '<th>Priority</th>'
-              . '<th>Issue</th>'
-              . '<th>Affected pages</th>'
-              . '<th>Recommendation</th>'
-              . '<th>Type / Confidence</th>'
-              . '</tr></thead><tbody>';
-        foreach ( $rec_items as $it ) {
-            $pr     = tse_ai_report_priority_class( isset( $it['priority'] ) ? $it['priority'] : '' );
-            $issue  = htmlspecialchars( (string) ( isset( $it['issue'] ) ? $it['issue'] : '' ), ENT_QUOTES, 'UTF-8' );
-            $rec_t  = htmlspecialchars( (string) ( isset( $it['recommendation'] ) ? $it['recommendation'] : '' ), ENT_QUOTES, 'UTF-8' );
-            $cat    = isset( $it['category'] ) ? $it['category'] : '';
-            $html .= '<tr>'
-                  . '<td>' . tse_ai_report_badge( strtoupper( $pr ), $pr ) . '</td>'
-                  . '<td>' . $issue . '</td>'
-                  . '<td>' . tse_ai_report_pages_cell( isset( $it['affected_pages'] ) ? $it['affected_pages'] : array(), $page_index ) . '</td>'
-                  . '<td class="recommendation">' . $rec_t . '</td>'
-                  . '<td>'
-                  . ( $cat ? tse_ai_report_badge( $cat, 'kind' ) . '<br>' : '' )
-                  . tse_ai_report_confidence_badge( isset( $it['confidence_score'] ) ? $it['confidence_score'] : null )
-                  . '</td>'
-                  . '</tr>';
-        }
-        $html .= '</tbody></table>';
+        $html .= tse_ai_report_grouped_table( $rec_items, $page_index );
     }
 
-    // Content gap signals
+    // Grouped content gaps
     $html .= tse_ai_report_render_error( $gaps );
-    $gap_items = tse_ai_report_sort_by_priority( isset( $gaps['items'] ) ? $gaps['items'] : array() );
+    $gap_items = isset( $gaps['items'] ) ? $gaps['items'] : array();
     $html .= tse_ai_report_section_heading( 'Content gap signals', count( $gap_items ) );
     $html .= tse_ai_report_why( 'Closing topical gaps reduces cannibalisation and lifts under-supported strategic pages.' );
     if ( empty( $gap_items ) ) {
         $html .= '<div class="empty">No content gap signals were returned.</div>';
     } else {
-        $html .= '<table class="tse"><colgroup>'
-              . '<col style="width:80px"><col style="width:24%"><col style="width:32%"><col><col style="width:130px">'
-              . '</colgroup><thead><tr>'
-              . '<th>Priority</th>'
-              . '<th>Issue</th>'
-              . '<th>Affected pages</th>'
-              . '<th>Recommendation</th>'
-              . '<th>Type / Confidence</th>'
-              . '</tr></thead><tbody>';
-        foreach ( $gap_items as $it ) {
-            $pr    = tse_ai_report_priority_class( isset( $it['priority'] ) ? $it['priority'] : '' );
-            $issue = htmlspecialchars( (string) ( isset( $it['issue'] ) ? $it['issue'] : '' ), ENT_QUOTES, 'UTF-8' );
-            $rec_t = htmlspecialchars( (string) ( isset( $it['recommendation'] ) ? $it['recommendation'] : '' ), ENT_QUOTES, 'UTF-8' );
-            $gtype = isset( $it['gap_type'] ) ? $it['gap_type'] : '';
-            $html .= '<tr>'
-                  . '<td>' . tse_ai_report_badge( strtoupper( $pr ), $pr ) . '</td>'
-                  . '<td>' . $issue . '</td>'
-                  . '<td>' . tse_ai_report_pages_cell( isset( $it['affected_pages'] ) ? $it['affected_pages'] : array(), $page_index ) . '</td>'
-                  . '<td class="recommendation">' . $rec_t . '</td>'
-                  . '<td>'
-                  . ( $gtype ? tse_ai_report_badge( $gtype, 'kind' ) . '<br>' : '' )
-                  . tse_ai_report_confidence_badge( isset( $it['confidence_score'] ) ? $it['confidence_score'] : null )
-                  . '</td>'
-                  . '</tr>';
-        }
-        $html .= '</tbody></table>';
+        $html .= tse_ai_report_grouped_table( $gap_items, $page_index );
     }
 
     return $html . tse_ai_report_footer();
@@ -559,18 +726,12 @@ function tse_ai_report_links( $meta, $links, $page_index ) {
     $items = tse_ai_report_sort_by_priority( isset( $links['items'] ) ? $links['items'] : array() );
     $html .= tse_ai_report_section_heading( 'Refined link opportunities', count( $items ) );
     $html .= tse_ai_report_why( 'Strong internal linking signals page importance to search engines and AI crawlers.' );
-    if ( empty( $items ) ) {
-        return $html . '<div class="empty">No internal-link opportunities were returned.</div>' . tse_ai_report_footer();
-    }
+    if ( empty( $items ) ) return $html . '<div class="empty">No internal-link opportunities were returned.</div>' . tse_ai_report_footer();
 
     $html .= '<table class="tse"><colgroup>'
-          . '<col style="width:80px"><col style="width:42%"><col style="width:200px"><col><col style="width:90px">'
+          . '<col style="width:80px"><col style="width:34%"><col style="width:180px"><col><col style="width:130px"><col style="width:90px">'
           . '</colgroup><thead><tr>'
-          . '<th>Priority</th>'
-          . '<th>Source → Target</th>'
-          . '<th>Suggested anchor</th>'
-          . '<th>Reason</th>'
-          . '<th>Conf.</th>'
+          . '<th>Priority</th><th>Source → Target</th><th>Suggested anchor</th><th>Reason</th><th>Impact</th><th>Conf.</th>'
           . '</tr></thead><tbody>';
     foreach ( $items as $it ) {
         $pr     = tse_ai_report_priority_class( isset( $it['priority'] ) ? $it['priority'] : '' );
@@ -578,6 +739,7 @@ function tse_ai_report_links( $meta, $links, $page_index ) {
         $tgt    = isset( $it['target_url'] ) ? (string) $it['target_url'] : ( isset( $it['affected_pages'][1] ) ? $it['affected_pages'][1] : '' );
         $anchor = htmlspecialchars( (string) ( isset( $it['suggested_anchor'] ) ? $it['suggested_anchor'] : '' ), ENT_QUOTES, 'UTF-8' );
         $reason = htmlspecialchars( (string) ( isset( $it['reason'] ) ? $it['reason'] : ( isset( $it['recommendation'] ) ? $it['recommendation'] : '' ) ), ENT_QUOTES, 'UTF-8' );
+        $impact_lvl = tse_ai_report_estimated_impact( array_merge( $it, array( 'affected_pages' => array_filter( array( $src, $tgt ) ) ) ), $page_index );
 
         $html .= '<tr>'
               . '<td>' . tse_ai_report_badge( strtoupper( $pr ), $pr ) . '</td>'
@@ -589,11 +751,11 @@ function tse_ai_report_links( $meta, $links, $page_index ) {
               . '</td>'
               . '<td>' . ( $anchor ? '<span class="anchor-suggest">' . $anchor . '</span>' : '<span style="color:#9ca3af">—</span>' ) . '</td>'
               . '<td class="recommendation">' . $reason . '</td>'
+              . '<td>' . tse_ai_report_impact_badge( $impact_lvl ) . '</td>'
               . '<td>' . tse_ai_report_confidence_badge( isset( $it['confidence_score'] ) ? $it['confidence_score'] : null ) . '</td>'
               . '</tr>';
     }
     $html .= '</tbody></table>';
-
     return $html . tse_ai_report_footer();
 }
 
@@ -614,41 +776,14 @@ function tse_ai_report_clusters( $meta, $clusters, $page_index ) {
 
     $html .= tse_ai_report_section_heading( 'Findings', count( $items ) );
     $html .= tse_ai_report_why( 'Isolated clusters miss out on authority distribution from the main site graph.' );
-    if ( empty( $items ) ) {
-        return $html . '<div class="empty">No cluster findings were returned.</div>' . tse_ai_report_footer();
-    }
+    if ( empty( $items ) ) return $html . '<div class="empty">No cluster findings were returned.</div>' . tse_ai_report_footer();
 
     foreach ( $by_cluster as $cid => $cluster_items ) {
         $cluster_items = tse_ai_report_sort_by_priority( $cluster_items );
         $label = $cid >= 0 ? ( 'Cluster #' . $cid ) : 'Unclustered findings';
         $html .= '<h2 class="section" style="margin-top:24px">' . htmlspecialchars( $label, ENT_QUOTES, 'UTF-8' )
               . '<span class="count">' . count( $cluster_items ) . '</span></h2>';
-        $html .= '<table class="tse"><colgroup>'
-              . '<col style="width:80px"><col style="width:24%"><col style="width:32%"><col><col style="width:130px">'
-              . '</colgroup><thead><tr>'
-              . '<th>Priority</th>'
-              . '<th>Issue</th>'
-              . '<th>Affected pages</th>'
-              . '<th>Recommendation</th>'
-              . '<th>Type / Confidence</th>'
-              . '</tr></thead><tbody>';
-        foreach ( $cluster_items as $it ) {
-            $pr     = tse_ai_report_priority_class( isset( $it['priority'] ) ? $it['priority'] : '' );
-            $issue  = htmlspecialchars( (string) ( isset( $it['issue'] ) ? $it['issue'] : '' ), ENT_QUOTES, 'UTF-8' );
-            $rec_t  = htmlspecialchars( (string) ( isset( $it['recommendation'] ) ? $it['recommendation'] : '' ), ENT_QUOTES, 'UTF-8' );
-            $ftype  = isset( $it['finding_type'] ) ? $it['finding_type'] : '';
-            $html  .= '<tr>'
-                   . '<td>' . tse_ai_report_badge( strtoupper( $pr ), $pr ) . '</td>'
-                   . '<td>' . $issue . '</td>'
-                   . '<td>' . tse_ai_report_pages_cell( isset( $it['affected_pages'] ) ? $it['affected_pages'] : array(), $page_index ) . '</td>'
-                   . '<td class="recommendation">' . $rec_t . '</td>'
-                   . '<td>'
-                   . ( $ftype ? tse_ai_report_badge( $ftype, 'kind' ) . '<br>' : '' )
-                   . tse_ai_report_confidence_badge( isset( $it['confidence_score'] ) ? $it['confidence_score'] : null )
-                   . '</td>'
-                   . '</tr>';
-        }
-        $html .= '</tbody></table>';
+        $html .= tse_ai_report_render_rec_table( $cluster_items, $page_index );
     }
 
     return $html . tse_ai_report_footer();
