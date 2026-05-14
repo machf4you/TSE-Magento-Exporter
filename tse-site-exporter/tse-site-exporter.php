@@ -2,7 +2,7 @@
 /**
  * Plugin Name: TSE Site Exporter
  * Description: Exports AI-ready structured website intelligence (SEO, content hierarchy, internal/external links, media, CRO signals, full structured-data audit, interpreted Elementor structure, page classification, site hierarchy, and a full internal-link relationship graph with per-page metrics, orphan/weak detection, classification flow and top hubs/authorities) as a downloadable ZIP of JSON files.
- * Version:     2.5.0
+ * Version:     2.5.1
  * Author:      TSE
  * License:     GPL-2.0-or-later
  * Text Domain: tse-site-exporter
@@ -12,7 +12,7 @@ if ( ! defined( 'ABSPATH' ) ) {
     exit;
 }
 
-define( 'TSE_SITE_EXPORTER_VERSION', '2.5.0' );
+define( 'TSE_SITE_EXPORTER_VERSION', '2.5.1' );
 define( 'TSE_SITE_EXPORTER_NONCE',   'tse_site_exporter_export' );
 define( 'TSE_SITE_EXPORTER_AI_NONCE','tse_site_exporter_ai' );
 define( 'TSE_SITE_EXPORTER_PATH',    plugin_dir_path( __FILE__ ) );
@@ -26,6 +26,7 @@ require_once TSE_SITE_EXPORTER_PATH . 'includes/ai_summary.php';
 require_once TSE_SITE_EXPORTER_PATH . 'includes/ai_settings.php';
 require_once TSE_SITE_EXPORTER_PATH . 'includes/ai_provider.php';
 require_once TSE_SITE_EXPORTER_PATH . 'includes/ai_runner.php';
+require_once TSE_SITE_EXPORTER_PATH . 'includes/ai_report.php';
 
 /**
  * Admin menu under Tools.
@@ -376,6 +377,15 @@ function tse_site_exporter_handle_ai_run() {
 
     $files = tse_ai_runner_execute( $provider, $inputs );
 
+    // V2.5.1: also render static HTML reports into the same ZIP.
+    $reports = tse_ai_report_build( $files );
+    foreach ( $reports as $name => $html ) {
+        $files[ $name ] = $html;
+    }
+    if ( isset( $files['manifest.json']['files'] ) ) {
+        $files['manifest.json']['files'] = array_keys( $files );
+    }
+
     $upload_dir = wp_upload_dir();
     $tmp_dir    = trailingslashit( $upload_dir['basedir'] ) . 'tse-site-exporter';
     if ( ! file_exists( $tmp_dir ) ) {
@@ -393,6 +403,11 @@ function tse_site_exporter_handle_ai_run() {
         wp_die( esc_html__( 'Could not create ZIP archive.', 'tse-site-exporter' ) );
     }
     foreach ( $files as $filename => $payload ) {
+        if ( is_string( $payload ) ) {
+            // HTML reports (or any pre-rendered string) ship verbatim.
+            $zip->addFromString( $filename, $payload );
+            continue;
+        }
         $json = wp_json_encode( $payload, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE );
         if ( false === $json ) continue;
         $zip->addFromString( $filename, $json );

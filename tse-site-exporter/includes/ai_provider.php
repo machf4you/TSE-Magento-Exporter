@@ -104,16 +104,27 @@ class TSE_AI_Provider_OpenAI extends TSE_AI_Provider_Base {
         $key = $this->get_key();
         if ( is_wp_error( $key ) ) return $key;
 
+        $model = $this->get_model();
+        // GPT-5.x models replace `max_tokens` with `max_completion_tokens` and
+        // only accept the default temperature (1). Older models keep the old shape.
+        $is_gpt5_family = (bool) preg_match( '/^gpt-5/i', $model );
+        $token_cap      = isset( $opts['max_tokens'] ) ? (int) $opts['max_tokens'] : 4096;
+
         $body = array(
-            'model'           => $this->get_model(),
+            'model'           => $model,
             'messages'        => array(
                 array( 'role' => 'system', 'content' => $system ),
                 array( 'role' => 'user',   'content' => wp_json_encode( $user_payload, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE ) ),
             ),
             'response_format' => array( 'type' => 'json_object' ),
-            'max_tokens'      => isset( $opts['max_tokens'] ) ? (int) $opts['max_tokens'] : 4096,
         );
-        if ( isset( $opts['temperature'] ) ) $body['temperature'] = (float) $opts['temperature'];
+        if ( $is_gpt5_family ) {
+            $body['max_completion_tokens'] = $token_cap;
+            // Skip temperature: GPT-5.x only accepts the default value.
+        } else {
+            $body['max_tokens'] = $token_cap;
+            if ( isset( $opts['temperature'] ) ) $body['temperature'] = (float) $opts['temperature'];
+        }
 
         $resp = wp_remote_post( 'https://api.openai.com/v1/chat/completions', array(
             'headers' => array(

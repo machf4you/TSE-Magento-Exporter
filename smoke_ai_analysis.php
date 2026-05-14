@@ -216,6 +216,92 @@ $out2 = tse_ai_runner_execute( $fake2, $inputs );
 check( 'runner: error path returns status=error', $out2['ai-recommendations.json']['status'] === 'error' );
 check( 'runner: error path carries error message', $out2['ai-recommendations.json']['error'] === 'rate limited' );
 
+// ---------------------------------------------------------------------------
+// 8. GPT-5.x compatibility: max_completion_tokens swap + temperature dropped
+// ---------------------------------------------------------------------------
+$GLOBALS['tse_test_canned_resp'] = array(
+    'response' => array( 'code' => 200 ),
+    'body'     => json_encode( array( 'choices' => array( array( 'message' => array( 'content' => '{"items":[]}' ) ) ) ) ),
+);
+$op->complete( 'sys', array( 'k' => 'v' ), array( 'temperature' => 0.2, 'max_tokens' => 2048 ) );
+$body_gpt5 = $GLOBALS['tse_test_last_post']['args']['body'];
+check( 'gpt-5.2 uses max_completion_tokens, not max_tokens',
+    strpos( $body_gpt5, '"max_completion_tokens":2048' ) !== false
+    && strpos( $body_gpt5, '"max_tokens"' ) === false, substr( $body_gpt5, 0, 200 ) );
+check( 'gpt-5.2 body omits temperature (only default supported)',
+    strpos( $body_gpt5, '"temperature"' ) === false );
+
+// Force an older model and verify it still uses max_tokens + accepts temperature.
+require_once __DIR__ . '/tse-site-exporter/includes/ai_provider.php';
+class TSE_AI_OpenAI_Legacy_For_Test extends TSE_AI_Provider_OpenAI {
+    public function get_model() { return 'gpt-4o-mini'; }
+    public function get_key()   { return 'sk-legacy-test'; }
+}
+$legacy = new TSE_AI_OpenAI_Legacy_For_Test();
+$legacy->complete( 'sys', array( 'k' => 'v' ), array( 'temperature' => 0.3, 'max_tokens' => 1024 ) );
+$body_legacy = $GLOBALS['tse_test_last_post']['args']['body'];
+check( 'gpt-4o-mini still uses max_tokens (legacy path)',
+    strpos( $body_legacy, '"max_tokens":1024' ) !== false
+    && strpos( $body_legacy, '"max_completion_tokens"' ) === false );
+check( 'gpt-4o-mini accepts temperature', strpos( $body_legacy, '"temperature":0.3' ) !== false );
+
+// ---------------------------------------------------------------------------
+// 9. HTML reports: structure, escaping, priority ordering
+// ---------------------------------------------------------------------------
+require_once __DIR__ . '/tse-site-exporter/includes/ai_report.php';
+
+$runner_output = $out;
+$reports = tse_ai_report_build( $runner_output );
+
+foreach ( array( 'ai-report.html', 'internal-link-report.html', 'cluster-report.html' ) as $f ) {
+    check( "reports: $f generated", isset( $reports[ $f ] ) && is_string( $reports[ $f ] ) );
+    $h = $reports[ $f ];
+    check( "reports: $f is valid HTML doc", strpos( $h, '<!doctype html>' ) === 0 );
+    check( "reports: $f has table or empty card", strpos( $h, '<table class="tse"' ) !== false || strpos( $h, 'class="empty"' ) !== false );
+    check( "reports: $f references provider+model", strpos( $h, 'fake' ) !== false && strpos( $h, 'fake-model-1' ) !== false );
+}
+
+// XSS-escaping check
+$evil = '<script>alert(1)</script>';
+$fake3 = new TSE_AI_Provider_Fake();
+$fake3->canned = array(
+    array( 'items' => array( array( 'priority' => 'high', 'issue' => $evil, 'affected_pages' => array( 'https://example.com/' . $evil ), 'recommendation' => $evil, 'confidence_score' => 0.5 ) ) ),
+    array( 'items' => array() ),
+    array( 'items' => array() ),
+    array( 'items' => array() ),
+);
+$evil_out = tse_ai_runner_execute( $fake3, $inputs );
+$evil_reports = tse_ai_report_build( $evil_out );
+check( 'reports: <script> tag from LLM is escaped in HTML output',
+    strpos( $evil_reports['ai-report.html'], '<script>alert(1)</script>' ) === false
+    && strpos( $evil_reports['ai-report.html'], '&lt;script&gt;' ) !== false );
+
+// Priority ordering
+$fake4 = new TSE_AI_Provider_Fake();
+$fake4->canned = array(
+    array( 'items' => array(
+        array( 'priority' => 'low',    'issue' => 'L', 'affected_pages' => array(), 'recommendation' => 'r', 'confidence_score' => 0.9 ),
+        array( 'priority' => 'high',   'issue' => 'H', 'affected_pages' => array(), 'recommendation' => 'r', 'confidence_score' => 0.5 ),
+        array( 'priority' => 'medium', 'issue' => 'M', 'affected_pages' => array(), 'recommendation' => 'r', 'confidence_score' => 0.5 ),
+    ) ),
+    array( 'items' => array() ), array( 'items' => array() ), array( 'items' => array() ),
+);
+$ord_out = tse_ai_runner_execute( $fake4, $inputs );
+$ord_reports = tse_ai_report_build( $ord_out );
+$h_pos = strpos( $ord_reports['ai-report.html'], '<td>H</td>' );
+$m_pos = strpos( $ord_reports['ai-report.html'], '<td>M</td>' );
+$l_pos = strpos( $ord_reports['ai-report.html'], '<td>L</td>' );
+check( 'reports: items sorted high → medium → low', $h_pos !== false && $m_pos !== false && $l_pos !== false && $h_pos < $m_pos && $m_pos < $l_pos );
+
+// Error wrapping in HTML
+$fake5 = new TSE_AI_Provider_Fake();
+$fake5->force_error = new WP_Error( 'tse_ai_http_429', 'rate limited' );
+$err_out = tse_ai_runner_execute( $fake5, $inputs );
+$err_reports = tse_ai_report_build( $err_out );
+check( 'reports: ai-report.html renders provider error banner',
+    strpos( $err_reports['ai-report.html'], 'Analysis failed' ) !== false
+    && strpos( $err_reports['ai-report.html'], 'rate limited' ) !== false );
+
 echo "\n";
 if ( $fail === 0 ) { echo "ALL ASSERTIONS PASS\n"; exit( 0 ); }
 echo "FAILED: $fail assertion(s)\n"; exit( 1 );
