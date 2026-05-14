@@ -2,12 +2,26 @@
 <config xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
         xsi:noNamespaceSchemaLocation="urn:magento:module:Magento_Backend:etc/menu.xsd">
     <menu>
-        <add id="TSE_MagentoExporter::tse_export"
+        <!--
+            Group node — renders as a labelled section under the System menu.
+            Has no `action` attribute, so it's just a header for its children.
+        -->
+        <add id="TSE_MagentoExporter::tse_root"
              title="TSE Magento Exporter"
+             translate="title"
              module="TSE_MagentoExporter"
-             parent="Magento_Backend::system_tools"
+             parent="Magento_Backend::system"
+             sortOrder="100"
+             resource="TSE_MagentoExporter::tse_export"/>
+
+        <!-- Clickable action under the group. -->
+        <add id="TSE_MagentoExporter::tse_export_run"
+             title="Export Site Data"
+             translate="title"
+             module="TSE_MagentoExporter"
+             parent="TSE_MagentoExporter::tse_root"
+             sortOrder="10"
              action="tsemagento/export/index"
-             resource="TSE_MagentoExporter::tse_export"
-             sortOrder="50"/>
+             resource="TSE_MagentoExporter::tse_export"/>
     </menu>
 </config>

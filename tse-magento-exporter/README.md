@@ -48,15 +48,22 @@ stores/mt/...
 
 ## Install
 
-1. Unzip into `app/code/TSE/MagentoExporter/`.
+1. Unzip into `app/code/TSE/MagentoExporter/` (final path should be `<magento_root>/app/code/TSE/MagentoExporter/registration.php`).
 2. From your Magento root:
    ```
    bin/magento module:enable TSE_MagentoExporter
    bin/magento setup:upgrade
-   bin/magento setup:di:compile      # production mode only
-   bin/magento cache:clean
+   bin/magento setup:di:compile       # production mode only
+   bin/magento cache:flush
    ```
-3. Visit **System → Tools → TSE Magento Exporter** and click **Download multi-store export ZIP**.
+3. **Log out and back into Magento admin** — the menu tree + ACL are cached per-session.
+4. Find it under **System → TSE Magento Exporter → Export Site Data**.
+
+### Troubleshooting menu visibility
+
+* `bin/magento module:status TSE_MagentoExporter` must show **Module is enabled**.
+* If the menu still doesn't appear, the admin user role probably doesn't have the new ACL resource yet. Go to **System → Permissions → User Roles → \[role\] → Role Resources** and tick **TSE Magento Exporter** (it sits under the System branch). Save, log out, log back in.
+* `bin/magento cache:flush` followed by a fresh admin login is required after any change to `menu.xml` or `acl.xml`.
 
 ## Permissions
 
