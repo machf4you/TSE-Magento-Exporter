@@ -12,7 +12,7 @@ use TSE\MagentoExporter\Model\ZipBuilder;
 
 class Download extends Action
 {
-    public const ADMIN_RESOURCE = 'TSE_MagentoExporter::tse_export';
+    public const ADMIN_RESOURCE = 'Magento_Backend::admin';
 
     /** @var Exporter */
     private $exporter;
@@ -41,10 +41,28 @@ class Download extends Action
         @ini_set('memory_limit', '1024M');
 
         try {
-            $bundle  = $this->exporter->buildBundle();
+            // Build filters from request params:
+            //   store=hf                       single store
+            //   stores[]=hf&stores[]=cbs       multi-store
+            //   sections[]=products&sections[]=seo
+            $req = $this->getRequest();
+            $stores = (array) ($req->getParam('stores') ?: array_filter([(string) $req->getParam('store', '')]));
+            $stores = array_values(array_filter(array_map('strval', $stores), 'strlen'));
+
+            $sections = (array) ($req->getParam('sections') ?: []);
+            $sections = array_values(array_filter(array_map('strval', $sections), 'strlen'));
+
+            $bundle  = $this->exporter->buildBundle([
+                'stores'   => $stores,
+                'sections' => $sections,
+            ]);
             $zipPath = $this->zipBuilder->build($bundle);
 
-            $filename = 'tse-magento-export-' . gmdate('Ymd-His') . '.zip';
+            // Filename reflects scope for easier downstream handling.
+            $scope = $stores ? implode('-', $stores) : 'all-stores';
+            $secScope = $sections ? implode('-', $sections) : 'full';
+            $filename = sprintf('tse-magento-export-%s-%s-%s.zip', $scope, $secScope, gmdate('Ymd-His'));
+
             return $this->fileFactory->create(
                 $filename,
                 [

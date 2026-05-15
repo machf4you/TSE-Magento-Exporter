@@ -9,7 +9,7 @@ use Magento\Framework\View\Result\PageFactory;
 
 class Index extends Action
 {
-    public const ADMIN_RESOURCE = 'TSE_MagentoExporter::tse_export';
+    public const ADMIN_RESOURCE = 'Magento_Backend::admin';
 
     /** @var PageFactory */
     private $resultPageFactory;
